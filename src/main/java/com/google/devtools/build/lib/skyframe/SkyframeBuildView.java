@@ -98,6 +98,7 @@ import com.google.devtools.build.lib.skyframe.SkyframeErrorProcessor.ErrorProces
 import com.google.devtools.build.lib.skyframe.SkyframeExecutor.ConfigureTargetsResult;
 import com.google.devtools.build.lib.skyframe.SkyframeExecutor.FailureToRetrieveIntrospectedValueException;
 import com.google.devtools.build.lib.skyframe.SkyframeExecutor.TopLevelActionConflictReport;
+import com.google.devtools.build.lib.skyframe.config.BuildConfigurationKey;
 import com.google.devtools.build.lib.util.DetailedExitCode;
 import com.google.devtools.build.lib.util.DetailedExitCode.DetailedExitCodeComparator;
 import com.google.devtools.build.lib.util.OrderedSetMultimap;
@@ -1085,7 +1086,7 @@ public final class SkyframeBuildView {
         // couldn't be involved in the conflict exception anyway, and we just move on.
         // Unless it's an unexpected interrupt that caused the exception.
         if (e.getCause() instanceof InterruptedException) {
-          BugReport.sendBugReport(e);
+          BugReport.sendNonFatalBugReport(e);
         }
       }
     }

@@ -24,8 +24,6 @@ CcToolchainConfigInfo = _builtins.toplevel.CcToolchainConfigInfo
 MemProfProfileInfo = _builtins.internal.MemProfProfileInfo
 
 cc_toolchain_attrs_exec = {
-    "cpu": attr.string(),
-    "compiler": attr.string(),
     # buildifier: disable=attr-license
     "licenses": attr.license() if hasattr(attr, "license") else attr.string_list(),
     # buildifier: disable=attr-license
@@ -190,6 +188,10 @@ cc_toolchain_attrs_exec = {
         default = "@" + semantics.get_repo() + "//tools/build_defs/cc/whitelists/starlark_hdrs_check:loose_header_check_allowed_in_toolchain",
         providers = [PackageSpecificationInfo],
         cfg = "exec",
+    ),
+    "_build_info_translator": attr.label(
+        default = semantics.BUILD_INFO_TRANLATOR_LABEL,
+        providers = [OutputGroupInfo],
     ),
     "_is_apple": attr.bool(
         default = False,

@@ -26,6 +26,9 @@ public class TestConstants {
 
   public static final String LOAD_PROTO_LIBRARY =
       "load('@rules_proto//proto:defs.bzl', 'proto_library')";
+  public static final String PROTO_TOOLCHAIN =  "@rules_proto//proto:toolchain_type";
+  public static final String LOAD_PROTO_TOOLCHAIN =
+      "load('@rules_proto//proto:proto_toolchain.bzl', 'proto_toolchain')";
   public static final String LOAD_PROTO_LANG_TOOLCHAIN =
       "load('@rules_proto//proto:defs.bzl', 'proto_lang_toolchain')";
 
@@ -103,6 +106,9 @@ public class TestConstants {
 
   /** The path in which the mock cc crosstool resides. */
   public static final String MOCK_CC_CROSSTOOL_PATH = "tools/cpp";
+
+  /** The path in which the mock license rule resides. */
+  public static final String MOCK_LICENSE_SCRATCH = "third_party/rules_license/";
 
   /** The workspace repository label under which built-in tools reside. */
   public static final RepositoryName TOOLS_REPOSITORY = RepositoryName.BAZEL_TOOLS;

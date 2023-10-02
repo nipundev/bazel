@@ -423,7 +423,7 @@ public final class ConfiguredTargetFactory {
     if (ruleContext.getConfiguration().allowAnalysisFailures()) {
       ImmutableList.Builder<NestedSet<AnalysisFailure>> analysisFailures = ImmutableList.builder();
       Iterable<? extends TransitiveInfoCollection> infoCollections =
-          Iterables.concat(ruleContext.getConfiguredTargetMap().values(), extraDeps);
+          Iterables.concat(ruleContext.getAllPrerequisites(), extraDeps);
       for (TransitiveInfoCollection infoCollection : infoCollections) {
         AnalysisFailureInfo failureInfo =
             infoCollection.get(AnalysisFailureInfo.STARLARK_CONSTRUCTOR);
@@ -473,7 +473,7 @@ public final class ConfiguredTargetFactory {
       ImmutableList.Builder<AnalysisFailure> analysisFailures = ImmutableList.builder();
 
       for (String errorMessage : ruleContext.getSuppressedErrorMessages()) {
-        analysisFailures.add(new AnalysisFailure(ruleContext.getLabel(), errorMessage));
+        analysisFailures.add(AnalysisFailure.create(ruleContext.getLabel(), errorMessage));
       }
       RuleConfiguredTargetBuilder builder = new RuleConfiguredTargetBuilder(ruleContext);
       builder.addNativeDeclaredProvider(
@@ -649,7 +649,7 @@ public final class ConfiguredTargetFactory {
       ImmutableList.Builder<AnalysisFailure> analysisFailures = ImmutableList.builder();
 
       for (String errorMessage : ruleContext.getSuppressedErrorMessages()) {
-        analysisFailures.add(new AnalysisFailure(ruleContext.getLabel(), errorMessage));
+        analysisFailures.add(AnalysisFailure.create(ruleContext.getLabel(), errorMessage));
       }
       ConfiguredAspect.Builder builder = new ConfiguredAspect.Builder(ruleContext);
       builder.addNativeDeclaredProvider(

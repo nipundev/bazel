@@ -178,10 +178,6 @@ class ParallelEvaluatorContext {
     return errorInfoManager;
   }
 
-  boolean restartPermitted() {
-    return graphInconsistencyReceiver.restartPermitted();
-  }
-
   boolean mergingSkyframeAnalysisExecutionPhases() {
     return mergingSkyframeAnalysisExecutionPhases;
   }

@@ -121,7 +121,7 @@ import net.starlark.java.spelling.SpellChecker;
  */
 // Non-final only for mocking in tests. Do not subclass!
 @Immutable
-public class RuleClass {
+public class RuleClass implements RuleClassData {
 
   /** The name attribute, present for all rules at index 0. */
   static final Attribute NAME_ATTRIBUTE =
@@ -760,7 +760,6 @@ public class RuleClass {
     private boolean hasAnalysisTestTransition = false;
     private final ImmutableList.Builder<AllowlistChecker> allowlistCheckers =
         ImmutableList.builder();
-    private boolean hasStarlarkRuleTransition = false;
     private boolean ignoreLicenses = false;
     private ImplicitOutputsFunction implicitOutputsFunction = ImplicitOutputsFunction.NONE;
     private TransitionFactory<RuleTransitionData> transitionFactory;
@@ -1131,14 +1130,6 @@ public class RuleClass {
       return this;
     }
 
-    public void setHasStarlarkRuleTransition() {
-      hasStarlarkRuleTransition = true;
-    }
-
-    public boolean hasStarlarkRuleTransition() {
-      return hasStarlarkRuleTransition;
-    }
-
     @CanIgnoreReturnValue
     public Builder factory(ConfiguredTargetFactory<?, ?, ?> factory) {
       this.configuredTargetFactory = factory;
@@ -1277,6 +1268,10 @@ public class RuleClass {
     public Builder setSubrules(ImmutableList<? extends StarlarkSubruleApi> subrules) {
       this.subrules = subrules;
       return this;
+    }
+
+    public ImmutableList<? extends StarlarkSubruleApi> getSubrules() {
+      return subrules;
     }
 
     @CanIgnoreReturnValue
@@ -1823,9 +1818,8 @@ public class RuleClass {
     return clazz.cast(configuredTargetFactory);
   }
 
-  /**
-   * Returns the class of rule that this RuleClass represents (e.g. "cc_library").
-   */
+  /** Returns the class of rule that this RuleClass represents (e.g. "cc_library"). */
+  @Override
   public String getName() {
     return name;
   }
@@ -1849,10 +1843,9 @@ public class RuleClass {
     return key;
   }
 
-  /**
-   * Returns the target kind of this class of rule (e.g. "cc_library rule").
-   */
-  String getTargetKind() {
+  /** Returns the target kind of this class of rule (e.g. "cc_library rule"). */
+  @Override
+  public String getTargetKind() {
     return targetKind;
   }
 
@@ -1937,7 +1930,8 @@ public class RuleClass {
    *
    * <p>This is here so that we can do the loading phase overestimation required for "blaze query",
    * which does not have the configured targets available.
-   **/
+   */
+  @Override
   public AdvertisedProviderSet getAdvertisedProviders() {
     return advertisedProviders;
   }
@@ -2203,12 +2197,7 @@ public class RuleClass {
         // graph is inconsistent in that some license() rules have applicable_licenses while others
         // do not.
         if (rule.getRuleClassObject().isPackageMetadataRule()) {
-          // Do nothing
-        } else {
-          rule.setAttributeValue(
-              attr,
-              pkgBuilder.getPartialPackageArgs().defaultPackageMetadata(),
-              /* explicit= */ false);
+          rule.setAttributeValue(attr, ImmutableList.of(), /* explicit= */ false);
         }
 
       } else if (attr.getName().equals("licenses") && attr.getType() == BuildType.LICENSE) {
@@ -2568,6 +2557,7 @@ public class RuleClass {
   }
 
   /** Returns true if this RuleClass is a Starlark-defined RuleClass. */
+  @Override
   public boolean isStarlark() {
     return isStarlark;
   }

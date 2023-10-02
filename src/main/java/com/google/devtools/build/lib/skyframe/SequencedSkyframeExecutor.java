@@ -13,7 +13,6 @@
 // limitations under the License.
 package com.google.devtools.build.lib.skyframe;
 
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -59,6 +58,8 @@ import com.google.devtools.build.lib.profiler.GoogleAutoProfilerUtils;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.ProfilerTask;
 import com.google.devtools.build.lib.repository.ExternalPackageHelper;
+import com.google.devtools.build.lib.server.FailureDetails.ActionRewinding;
+import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
 import com.google.devtools.build.lib.skyframe.AspectKeyCreator.AspectKey;
 import com.google.devtools.build.lib.skyframe.ExternalFilesHelper.ExternalFileAction;
 import com.google.devtools.build.lib.skyframe.PackageFunction.ActionOnIOExceptionReadingBuildFile;
@@ -67,6 +68,7 @@ import com.google.devtools.build.lib.skyframe.actiongraph.v2.ActionGraphDump;
 import com.google.devtools.build.lib.skyframe.actiongraph.v2.AqueryConsumingOutputHandler;
 import com.google.devtools.build.lib.skyframe.rewinding.RewindableGraphInconsistencyReceiver;
 import com.google.devtools.build.lib.util.AbruptExitException;
+import com.google.devtools.build.lib.util.DetailedExitCode;
 import com.google.devtools.build.lib.util.ResourceUsage;
 import com.google.devtools.build.lib.util.io.TimestampGranularityMonitor;
 import com.google.devtools.build.lib.vfs.BatchStat;
@@ -74,6 +76,7 @@ import com.google.devtools.build.lib.vfs.FileStateKey;
 import com.google.devtools.build.lib.vfs.FileSystem;
 import com.google.devtools.build.lib.vfs.ModifiedFileSet;
 import com.google.devtools.build.lib.vfs.SyscallCache;
+import com.google.devtools.build.skyframe.DelegatingGraphInconsistencyReceiver;
 import com.google.devtools.build.skyframe.EmittedEventState;
 import com.google.devtools.build.skyframe.EvaluationContext;
 import com.google.devtools.build.skyframe.EventFilter;
@@ -135,7 +138,10 @@ public class SequencedSkyframeExecutor extends SkyframeExecutor {
 
   private Duration outputTreeDiffCheckingDuration = Duration.ofSeconds(-1L);
 
-  private GraphInconsistencyReceiver inconsistencyReceiver = GraphInconsistencyReceiver.THROWING;
+  // Use delegation so that the underlying inconsistency receiver can be changed per-command without
+  // recreating the evaluator.
+  private final DelegatingGraphInconsistencyReceiver inconsistencyReceiver =
+      new DelegatingGraphInconsistencyReceiver(GraphInconsistencyReceiver.THROWING);
 
   protected SequencedSkyframeExecutor(
       Consumer<SkyframeExecutor> skyframeExecutorConsumerOnInit,
@@ -244,25 +250,8 @@ public class SequencedSkyframeExecutor extends SkyframeExecutor {
       QuiescingExecutors executors,
       OptionsProvider options)
       throws InterruptedException, AbruptExitException {
+    inconsistencyReceiver.setDelegate(getGraphInconsistencyReceiverForCommand(options));
     if (evaluatorNeedsReset) {
-      if (rewindingPermitted(options)) {
-        // Currently incompatible with Skymeld i.e. this code path won't be run in Skymeld mode. We
-        // may need to combine these GraphInconsistencyReceiver implementations in the future.
-        var rewindableReceiver = new RewindableGraphInconsistencyReceiver();
-        rewindableReceiver.setHeuristicallyDropNodes(heuristicallyDropNodes);
-        inconsistencyReceiver = rewindableReceiver;
-      } else if (isMergedSkyframeAnalysisExecution()
-          && ((options.getOptions(AnalysisOptions.class) != null
-                  && options.getOptions(AnalysisOptions.class).discardAnalysisCache)
-              || !tracksStateForIncrementality()
-              || heuristicallyDropNodes)) {
-        inconsistencyReceiver = new SkymeldInconsistencyReceiver(heuristicallyDropNodes);
-      } else if (heuristicallyDropNodes) {
-        inconsistencyReceiver = new NodeDroppingInconsistencyReceiver();
-      } else {
-        inconsistencyReceiver = GraphInconsistencyReceiver.THROWING;
-      }
-
       // Recreate MemoizingEvaluator so that graph is recreated with correct edge-clearing status,
       // or if the graph doesn't have edges, so that a fresh graph can be used.
       resetEvaluator();
@@ -295,15 +284,44 @@ public class SequencedSkyframeExecutor extends SkyframeExecutor {
     return workspaceInfo;
   }
 
-  private boolean rewindingPermitted(OptionsProvider options) {
-    // Rewinding is only supported with no incremental state and no action cache.
-    if (trackIncrementalState) {
+  private GraphInconsistencyReceiver getGraphInconsistencyReceiverForCommand(
+      OptionsProvider options) throws AbruptExitException {
+    if (rewindingEnabled(options)) {
+      // Currently incompatible with Skymeld i.e. this code path won't be run in Skymeld mode. We
+      // may need to combine these GraphInconsistencyReceiver implementations in the future.
+      var rewindableReceiver = new RewindableGraphInconsistencyReceiver();
+      rewindableReceiver.setHeuristicallyDropNodes(heuristicallyDropNodes);
+      return rewindableReceiver;
+    }
+    if (isMergedSkyframeAnalysisExecution()
+        && ((options.getOptions(AnalysisOptions.class) != null
+                && options.getOptions(AnalysisOptions.class).discardAnalysisCache)
+            || !trackIncrementalState
+            || heuristicallyDropNodes)) {
+      return new SkymeldInconsistencyReceiver(heuristicallyDropNodes);
+    }
+    if (heuristicallyDropNodes) {
+      return new NodeDroppingInconsistencyReceiver();
+    }
+    return GraphInconsistencyReceiver.THROWING;
+  }
+
+  private static boolean rewindingEnabled(OptionsProvider options) throws AbruptExitException {
+    var buildRequestOptions = options.getOptions(BuildRequestOptions.class);
+    if (buildRequestOptions == null || !buildRequestOptions.rewindLostInputs) {
       return false;
     }
-    BuildRequestOptions buildRequestOptions = options.getOptions(BuildRequestOptions.class);
-    return buildRequestOptions != null
-        && !buildRequestOptions.useActionCache
-        && buildRequestOptions.rewindLostInputs;
+    if (buildRequestOptions.useActionCache) {
+      throw new AbruptExitException(
+          DetailedExitCode.of(
+              FailureDetail.newBuilder()
+                  .setMessage("--rewind_lost_inputs requires --nouse_action_cache")
+                  .setActionRewinding(
+                      ActionRewinding.newBuilder()
+                          .setCode(ActionRewinding.Code.REWIND_LOST_INPUTS_PREREQ_UNMET))
+                  .build()));
+    }
+    return true;
   }
 
   /**

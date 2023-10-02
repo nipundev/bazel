@@ -16,7 +16,6 @@ package com.google.devtools.build.lib.skyframe;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.devtools.build.lib.analysis.config.BuildConfigurationValue.configurationId;
 import static com.google.devtools.build.lib.analysis.config.BuildConfigurationValue.configurationIdMessage;
-import static com.google.devtools.build.lib.analysis.config.transitions.TransitionCollector.NULL_TRANSITION_COLLECTOR;
 import static com.google.devtools.build.lib.analysis.producers.TargetAndConfigurationProducer.createDetailedExitCode;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -36,7 +35,6 @@ import com.google.devtools.build.lib.analysis.TargetAndConfiguration;
 import com.google.devtools.build.lib.analysis.ToolchainCollection;
 import com.google.devtools.build.lib.analysis.ToolchainContext;
 import com.google.devtools.build.lib.analysis.TransitiveDependencyState;
-import com.google.devtools.build.lib.analysis.TransitiveDependencyState.PrerequisitePackageFunction;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue;
 import com.google.devtools.build.lib.analysis.config.BuildOptions;
 import com.google.devtools.build.lib.analysis.config.BuildOptionsView;
@@ -84,6 +82,7 @@ import com.google.devtools.build.lib.packages.Target;
 import com.google.devtools.build.lib.packages.Type;
 import com.google.devtools.build.lib.skyframe.ConfiguredTargetEvaluationExceptions.ReportedException;
 import com.google.devtools.build.lib.skyframe.ConfiguredTargetEvaluationExceptions.UnreportedException;
+import com.google.devtools.build.lib.skyframe.config.BuildConfigurationKey;
 import com.google.devtools.build.lib.skyframe.toolchains.ToolchainContextKey;
 import com.google.devtools.build.lib.skyframe.toolchains.ToolchainException;
 import com.google.devtools.build.lib.skyframe.toolchains.UnloadedToolchainContext;
@@ -460,7 +459,13 @@ public final class DependencyResolver {
       throw new UnreportedException(
           new ConfiguredValueCreationException(targetAndConfiguration.getTarget(), e.getMessage()));
     }
-    BzlLoadValue bzlValue = (BzlLoadValue) env.getValue(BzlLoadValue.keyForBuild(bzlFile));
+    BzlLoadValue bzlValue =
+        (BzlLoadValue)
+            env.getValue(
+                Objects.equals(bzlFile.getRepository(), StarlarkBuiltinsValue.BUILTINS_REPO)
+                    ? BzlLoadValue.keyForBuiltins(bzlFile)
+                    : BzlLoadValue.keyForBuild(bzlFile));
+
     if (bzlValue == null) {
       return null;
     }

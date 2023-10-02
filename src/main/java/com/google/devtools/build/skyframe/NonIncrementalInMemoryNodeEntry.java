@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.skyframe.NonIncrementalInMemoryNodeEntry.NonIncrementalBuildingState;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -120,7 +119,7 @@ public class NonIncrementalInMemoryNodeEntry
   }
 
   @Override
-  public final synchronized void resetForRestartFromScratch() {
+  public final synchronized void resetEvaluationFromScratch() {
     checkState(!hasUnsignaledDeps(), this);
     var newBuildingState = new NonIncrementalBuildingState();
     newBuildingState.reverseDeps = dirtyBuildingState.reverseDeps;
@@ -152,7 +151,7 @@ public class NonIncrementalInMemoryNodeEntry
     }
     dirtyBuildingState = new NonIncrementalBuildingState();
     value = null;
-    return MarkedDirtyResult.withReverseDeps(ImmutableList.of());
+    return MarkedDirtyResult.forRewinding();
   }
 
   @Override

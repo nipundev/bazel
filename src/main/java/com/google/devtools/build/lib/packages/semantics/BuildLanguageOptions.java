@@ -358,30 +358,6 @@ public final class BuildLanguageOptions extends OptionsBase {
   public boolean experimentalActionResourceSet;
 
   @Option(
-      name = "experimental_lazy_template_expansion",
-      defaultValue = "true",
-      documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
-      effectTags = {OptionEffectTag.EXECUTION, OptionEffectTag.BUILD_FILE_SEMANTICS},
-      metadataTags = {
-        OptionMetadataTag.EXPERIMENTAL,
-      },
-      help =
-          "If set to true, ctx.actions.expand_template() accepts a TemplateDict"
-              + " parameter for deferred evaluation of substitution values.")
-  public boolean experimentalLazyTemplateExpansion;
-
-  @Option(
-      name = "experimental_analysis_test_call",
-      defaultValue = "true",
-      documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
-      effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS, OptionEffectTag.BUILD_FILE_SEMANTICS},
-      metadataTags = {
-        OptionMetadataTag.EXPERIMENTAL,
-      },
-      help = "If set to true, analysis_test native call is available.")
-  public boolean experimentalAnalysisTestCall;
-
-  @Option(
       name = "incompatible_struct_has_no_methods",
       defaultValue = "false",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
@@ -431,16 +407,6 @@ public final class BuildLanguageOptions extends OptionsBase {
   public boolean incompatibleDisallowEmptyGlob;
 
   @Option(
-      name = "incompatible_disallow_legacy_javainfo",
-      defaultValue = "true",
-      documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
-      effectTags = {OptionEffectTag.BUILD_FILE_SEMANTICS},
-      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
-      help = "Deprecated. No-op.")
-  // TODO(elenairina): Move option to graveyard after the flag is removed from the global blazerc.
-  public boolean incompatibleDisallowLegacyJavaInfo;
-
-  @Option(
       name = "incompatible_disallow_struct_provider_syntax",
       defaultValue = "false",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
@@ -478,13 +444,13 @@ public final class BuildLanguageOptions extends OptionsBase {
 
   @Option(
       name = "incompatible_visibility_private_attributes_at_definition",
-      defaultValue = "false",
+      defaultValue = "true",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
       effectTags = {OptionEffectTag.BUILD_FILE_SEMANTICS},
       metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
       help =
           "If set to true, the visibility of private rule attributes is checked with respect "
-              + "to the rule definition, rather than the rule usage.")
+              + "to the rule definition, falling back to rule usage if not visible.")
   public boolean incompatibleVisibilityPrivateAttributesAtDefinition;
 
   @Option(
@@ -712,6 +678,28 @@ public final class BuildLanguageOptions extends OptionsBase {
       help = "If enabled, targets that have unknown attributes set to None fail.")
   public boolean incompatibleFailOnUnknownAttributes;
 
+  // Flip when dependencies to rules_* repos are upgraded and protobuf registers toolchains
+  @Option(
+      name = "incompatible_enable_proto_toolchain_resolution",
+      defaultValue = "false",
+      documentationCategory = OptionDocumentationCategory.TOOLCHAIN,
+      effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS},
+      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
+      help =
+          "If true, proto lang rules define toolchains from rules_proto, rules_java, rules_cc"
+              + " repositories.")
+  public boolean incompatibleEnableProtoToolchainResolution;
+
+  // Flip when java_single_jar is feature complete
+  @Option(
+      name = "incompatible_disable_non_executable_java_binary",
+      defaultValue = "false",
+      documentationCategory = OptionDocumentationCategory.TOOLCHAIN,
+      effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS},
+      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
+      help = "If true, java_binary is always executable. create_executable attribute is removed.")
+  public boolean incompatibleDisableNonExecutableJavaBinary;
+
   /**
    * An interner to reduce the number of StarlarkSemantics instances. A single Blaze instance should
    * never accumulate a large number of these and being able to shortcut on object identity makes a
@@ -746,8 +734,6 @@ public final class BuildLanguageOptions extends OptionsBase {
             .setBool(
                 INCOMPATIBLE_EXISTING_RULES_IMMUTABLE_VIEW, incompatibleExistingRulesImmutableView)
             .setBool(EXPERIMENTAL_ACTION_RESOURCE_SET, experimentalActionResourceSet)
-            .setBool(EXPERIMENTAL_LAZY_TEMPLATE_EXPANSION, experimentalLazyTemplateExpansion)
-            .setBool(EXPERIMENTAL_ANALYSIS_TEST_CALL, experimentalAnalysisTestCall)
             .setBool(EXPERIMENTAL_GOOGLE_LEGACY_API, experimentalGoogleLegacyApi)
             .setBool(EXPERIMENTAL_PLATFORMS_API, experimentalPlatformsApi)
             .setBool(EXPERIMENTAL_CC_SHARED_LIBRARY, experimentalCcSharedLibrary)
@@ -813,6 +799,12 @@ public final class BuildLanguageOptions extends OptionsBase {
                 INCOMPATIBLE_DISABLE_OBJC_LIBRARY_TRANSITION,
                 incompatibleDisableObjcLibraryTransition)
             .setBool(INCOMPATIBLE_FAIL_ON_UNKNOWN_ATTRIBUTES, incompatibleFailOnUnknownAttributes)
+            .setBool(
+                INCOMPATIBLE_ENABLE_PROTO_TOOLCHAIN_RESOLUTION,
+                incompatibleEnableProtoToolchainResolution)
+            .setBool(
+                INCOMPATIBLE_DISABLE_NON_EXECUTABLE_JAVA_BINARY,
+                incompatibleDisableNonExecutableJavaBinary)
             .build();
     return INTERNER.intern(semantics);
   }
@@ -853,9 +845,6 @@ public final class BuildLanguageOptions extends OptionsBase {
   public static final String EXPERIMENTAL_SIBLING_REPOSITORY_LAYOUT =
       "-experimental_sibling_repository_layout";
   public static final String EXPERIMENTAL_ACTION_RESOURCE_SET = "+experimental_action_resource_set";
-  public static final String EXPERIMENTAL_LAZY_TEMPLATE_EXPANSION =
-      "+experimental_lazy_template_expansion";
-  public static final String EXPERIMENTAL_ANALYSIS_TEST_CALL = "+experimental_analysis_test_call";
   public static final String INCOMPATIBLE_ALWAYS_CHECK_DEPSET_ELEMENTS =
       "+incompatible_always_check_depset_elements";
   public static final String INCOMPATIBLE_DEPSET_FOR_LIBRARIES_TO_LINK_GETTER =
@@ -893,7 +882,7 @@ public final class BuildLanguageOptions extends OptionsBase {
   public static final String INCOMPATIBLE_UNAMBIGUOUS_LABEL_STRINGIFICATION =
       "+incompatible_unambiguous_label_stringification";
   public static final String INCOMPATIBLE_VISIBILITY_PRIVATE_ATTRIBUTES_AT_DEFINITION =
-      "-incompatible_visibility_private_attributes_at_definition";
+      "+incompatible_visibility_private_attributes_at_definition";
   public static final String INCOMPATIBLE_TOP_LEVEL_ASPECTS_REQUIRE_PROVIDERS =
       "-incompatible_top_level_aspects_require_providers";
   public static final String INCOMPATIBLE_DISABLE_STARLARK_HOST_TRANSITIONS =
@@ -906,6 +895,10 @@ public final class BuildLanguageOptions extends OptionsBase {
       "-incompatible_disable_objc_library_transition";
   public static final String INCOMPATIBLE_FAIL_ON_UNKNOWN_ATTRIBUTES =
       "+incompatible_fail_on_unknown_attributes";
+  public static final String INCOMPATIBLE_ENABLE_PROTO_TOOLCHAIN_RESOLUTION =
+      "-incompatible_enable_proto_toolchain_resolution";
+  public static final String INCOMPATIBLE_DISABLE_NON_EXECUTABLE_JAVA_BINARY =
+      "-incompatible_disable_non_executable_java_binary";
 
   // non-booleans
   public static final StarlarkSemantics.Key<String> EXPERIMENTAL_BUILTINS_BZL_PATH =

@@ -24,6 +24,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.devtools.build.lib.remote.Store;
+import com.google.devtools.build.lib.remote.common.CacheNotFoundException;
 import com.google.devtools.build.lib.remote.common.LazyFileOutputStream;
 import com.google.devtools.build.lib.remote.common.RemoteActionExecutionContext;
 import com.google.devtools.build.lib.remote.common.RemoteCacheClient;
@@ -31,7 +33,6 @@ import com.google.devtools.build.lib.vfs.Path;
 import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.UUID;
 
 /**
  * A {@link RemoteCacheClient} implementation combining two blob stores. A local disk blob store and
@@ -133,18 +134,23 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
             directExecutor());
   }
 
-  private Path newTempPath() {
-    return diskCache.toPathNoSplit(UUID.randomUUID().toString());
+  private Path getTempPath() {
+    return diskCache.getTempPath();
   }
 
-  private static ListenableFuture<Void> closeStreamOnError(
-      ListenableFuture<Void> f, OutputStream out) {
+  private static ListenableFuture<Void> cleanupTempFileOnError(
+      ListenableFuture<Void> f, Path tempPath, OutputStream tempOut) {
     return Futures.catchingAsync(
         f,
         Exception.class,
         (rootCause) -> {
           try {
-            out.close();
+            tempOut.close();
+          } catch (IOException e) {
+            rootCause.addSuppressed(e);
+          }
+          try {
+            tempPath.delete();
           } catch (IOException e) {
             rootCause.addSuppressed(e);
           }
@@ -156,23 +162,35 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
   @Override
   public ListenableFuture<Void> downloadBlob(
       RemoteActionExecutionContext context, Digest digest, OutputStream out) {
-    if (context.getReadCachePolicy().allowDiskCache() && diskCache.contains(digest)) {
-      return diskCache.downloadBlob(context, digest, out);
+    if (context.getReadCachePolicy().allowDiskCache()) {
+      return Futures.catchingAsync(
+          diskCache.downloadBlob(context, digest, out),
+          CacheNotFoundException.class,
+          (unused) -> downloadBlobFromRemote(context, digest, out),
+          directExecutor());
+    } else {
+      return downloadBlobFromRemote(context, digest, out);
     }
+  }
 
-    Path tempPath = newTempPath();
-    final OutputStream tempOut;
-    tempOut = new LazyFileOutputStream(tempPath);
-
+  private ListenableFuture<Void> downloadBlobFromRemote(
+      RemoteActionExecutionContext context, Digest digest, OutputStream out) {
     if (context.getReadCachePolicy().allowRemoteCache()) {
+      Path tempPath = getTempPath();
+      LazyFileOutputStream tempOut = new LazyFileOutputStream(tempPath);
+
       ListenableFuture<Void> download =
-          closeStreamOnError(remoteCache.downloadBlob(context, digest, tempOut), tempOut);
+          cleanupTempFileOnError(
+              remoteCache.downloadBlob(context, digest, tempOut), tempPath, tempOut);
       return Futures.transformAsync(
           download,
           (unused) -> {
             try {
+              // Fsync temp before we rename it to avoid data loss in the case of machine
+              // crashes (the OS may reorder the writes and the rename).
+              tempOut.syncIfPossible();
               tempOut.close();
-              diskCache.captureFile(tempPath, digest, /* isActionCache= */ false);
+              diskCache.captureFile(tempPath, digest, Store.CAS);
             } catch (IOException e) {
               return immediateFailedFuture(e);
             }

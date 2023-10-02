@@ -14,7 +14,6 @@
 
 package com.google.devtools.build.lib.analysis.starlark;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.devtools.build.lib.analysis.BaseRuleClasses.RUN_UNDER;
 import static com.google.devtools.build.lib.analysis.BaseRuleClasses.TIMEOUT_DEFAULT;
@@ -160,10 +159,17 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       new RuleClass.Builder("$binary_base_rule", RuleClassType.ABSTRACT, true, baseRule)
           .add(attr("args", STRING_LIST))
           .add(attr("output_licenses", LICENSE))
+          .addAttribute(
+              attr("$is_executable", BOOLEAN)
+                  .value(true)
+                  .nonconfigurable("Called from RunCommand.isExecutable, which takes a Target")
+                  .build())
           .build();
 
   private static final ImmutableSet<AllowlistEntry> ALLOWLIST_INITIALIZER =
       ImmutableSet.of(allowlistEntry("", "initializer_testing"));
+  private static final ImmutableSet<AllowlistEntry> ALLOWLIST_EXTEND_RULE =
+      ImmutableSet.of(allowlistEntry("", "extend_rule_testing"));
   private static final ImmutableSet<AllowlistEntry> ALLOWLIST_SUBRULES =
       ImmutableSet.of(allowlistEntry("", "subrule_testing"));
 
@@ -248,7 +254,12 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
                             labelCache.get(
                                 toolsRepository
                                     + BaseRuleClasses.DEFAULT_COVERAGE_REPORT_GENERATOR_VALUE))))
-            .add(attr(":run_under", LABEL).value(RUN_UNDER));
+            .add(attr(":run_under", LABEL).value(RUN_UNDER))
+            .addAttribute(
+                attr("$is_executable", BOOLEAN)
+                    .value(true)
+                    .nonconfigurable("Called from RunCommand.isExecutable, which takes a Target")
+                    .build());
 
     env.getNetworkAllowlistForTests()
         .ifPresent(
@@ -286,47 +297,106 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     }
   }
 
+  @FormatMethod
+  private static void failIf(boolean condition, String message, Object... args)
+      throws EvalException {
+    if (condition) {
+      throw Starlark.errorf(message, args);
+    }
+  }
+
   // TODO(bazel-team): implement attribute copy and other rule properties
   @Override
   public StarlarkRuleFunction rule(
       StarlarkFunction implementation,
-      Boolean test,
+      Object testUnchecked,
       Dict<?, ?> attrs,
       Object implicitOutputs,
-      Boolean executable,
-      Boolean outputToGenfiles,
+      Object executableUnchecked,
+      boolean outputToGenfiles,
       Sequence<?> fragments,
       Sequence<?> hostFragments,
-      Boolean starlarkTestable,
+      boolean starlarkTestable,
       Sequence<?> toolchains,
       boolean useToolchainTransition,
       Object doc,
       Sequence<?> providesArg,
       Sequence<?> execCompatibleWith,
-      Object analysisTest,
+      boolean analysisTest,
       Object buildSetting,
       Object cfg,
       Object execGroups,
       Object initializer,
+      Object parentUnchecked,
       Sequence<?> subrules,
       StarlarkThread thread)
       throws EvalException {
     // Ensure we're initializing a .bzl file, which also means we have a RuleDefinitionEnvironment.
     BzlInitThreadContext bazelContext = BzlInitThreadContext.fromOrFail(thread, "rule()");
 
-    // Get the callstack, sans the last entry, which is the builtin 'rule' callable itself.
-    ImmutableList<StarlarkThread.CallStackEntry> callStack = thread.getCallStack();
-    callStack = callStack.subList(0, callStack.size() - 1);
+    if (initializer != Starlark.NONE) {
+      BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_INITIALIZER);
+    }
 
-    LabelConverter labelConverter = LabelConverter.forBzlEvaluatingThread(thread);
+    if (parentUnchecked != Starlark.NONE) {
+      BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_EXTEND_RULE);
+    }
 
     if (!subrules.isEmpty()) {
       BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_SUBRULES);
     }
 
-    if (initializer != Starlark.NONE) {
-      BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_INITIALIZER);
+    final RuleClass parent;
+    final boolean executable;
+    final boolean test;
+
+    if (parentUnchecked == Starlark.NONE) {
+      parent = null;
+      executable = executableUnchecked == Starlark.UNBOUND ? false : (Boolean) executableUnchecked;
+      test = testUnchecked == Starlark.UNBOUND ? false : (Boolean) testUnchecked;
+    } else {
+      failIf(
+          !(parentUnchecked instanceof StarlarkRuleFunction), "Parent needs to be a Starlark rule");
+      // Assuming parent is already exported.
+      failIf(
+          ((StarlarkRuleFunction) parentUnchecked).ruleClass == null,
+          "Please export the parent rule before extending it.");
+
+      parent = ((StarlarkRuleFunction) parentUnchecked).ruleClass;
+      executable = parent.isExecutableStarlark();
+      test = parent.getRuleClassType() == RuleClassType.TEST;
+
+      // TODO b/300201845 - verify that parent is extendable
+
+      failIf(
+          executableUnchecked != Starlark.UNBOUND,
+          "Omit executable parameter when extending rules.");
+      failIf(testUnchecked != Starlark.UNBOUND, "Omit test parameter when extending rules.");
+      // TODO b/300201845 - add cfg support
+      failIf(cfg != Starlark.NONE, "cfg is not supported in extended rules yet.");
+      // TODO b/300201845 - add initializers
+      failIf(initializer != Starlark.NONE, "initializers are not supported in extended rules yet.");
+      // TODO b/300201845 - add subrules support
+      failIf(!subrules.isEmpty(), "subrules are not supported in extended rules yet.");
+      failIf(
+          implicitOutputs != Starlark.NONE,
+          "implicit_outputs is not supported when extending rules (deprecated).");
+      failIf(
+          !hostFragments.isEmpty(),
+          "host_fragments are not supported when extending rules (deprecated).");
+      failIf(
+          outputToGenfiles,
+          "output_to_genfiles are not supported when extending rules (deprecated).");
+      failIf(starlarkTestable, "_skylark_testable is not supported when extending rules.");
+      failIf(analysisTest, "analysis_test is not supported when extending rules.");
+      failIf(buildSetting != Starlark.NONE, "build_setting is not supported when extending rules.");
     }
+
+    // Get the callstack, sans the last entry, which is the builtin 'rule' callable itself.
+    ImmutableList<StarlarkThread.CallStackEntry> callStack = thread.getCallStack();
+    callStack = callStack.subList(0, callStack.size() - 1);
+
+    LabelConverter labelConverter = LabelConverter.forBzlEvaluatingThread(thread);
 
     return createRule(
         // Contextual parameters.
@@ -338,6 +408,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
         labelConverter,
         thread.getSemantics(),
         // rule() parameters
+        parent,
         implementation,
         initializer == Starlark.NONE ? null : (StarlarkFunction) initializer,
         test,
@@ -378,6 +449,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       LabelConverter labelConverter,
       StarlarkSemantics starlarkSemantics,
       // Parameters that come from rule().
+      @Nullable RuleClass parent,
       StarlarkFunction implementation,
       @Nullable StarlarkFunction initializer,
       boolean test,
@@ -402,13 +474,19 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     test |= Boolean.TRUE.equals(analysisTest);
 
     RuleClassType type = test ? RuleClassType.TEST : RuleClassType.NORMAL;
-    RuleClass parent =
-        test
-            ? getTestBaseRule(ruleDefinitionEnvironment)
-            : (executable ? binaryBaseRule : baseRule);
+    if (parent == null) {
+      parent =
+          test
+              ? getTestBaseRule(ruleDefinitionEnvironment)
+              : (executable ? binaryBaseRule : baseRule);
+    }
 
     // We'll set the name later, pass the empty string for now.
     RuleClass.Builder builder = new RuleClass.Builder("", type, true, parent);
+
+    if (executable || test) {
+      builder.setExecutableStarlark();
+    }
 
     builder.setCallStack(definitionCallstack);
 
@@ -422,14 +500,66 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       builder.setIsAnalysisTest();
     }
 
-    if (executable || test) {
-      builder.addAttribute(
-          attr("$is_executable", BOOLEAN)
-              .value(true)
-              .nonconfigurable("Called from RunCommand.isExecutable, which takes a Target")
-              .build());
-      builder.setExecutableStarlark();
+    boolean hasStarlarkDefinedTransition = false;
+    boolean hasFunctionTransitionAllowlist = false;
+    for (Pair<String, StarlarkAttrModule.Descriptor> attribute : attributes) {
+      String name = attribute.getFirst();
+      StarlarkAttrModule.Descriptor descriptor = attribute.getSecond();
+
+      Attribute attr = descriptor.build(name);
+
+      hasStarlarkDefinedTransition |= attr.hasStarlarkDefinedTransition();
+      if (attr.hasAnalysisTestTransition()) {
+        if (!builder.isAnalysisTest()) {
+          throw Starlark.errorf(
+              "Only rule definitions with analysis_test=True may have attributes with"
+                  + " analysis_test_transition transitions");
+        }
+        builder.setHasAnalysisTestTransition();
+      }
+      // Check for existence of the function transition allowlist attribute.
+      // TODO(b/121385274): remove when we stop allowlisting starlark transitions
+      if (name.equals(FunctionSplitTransitionAllowlist.ATTRIBUTE_NAME)
+          || name.equals(FunctionSplitTransitionAllowlist.LEGACY_ATTRIBUTE_NAME)) {
+        if (!BuildType.isLabelType(attr.getType())) {
+          throw Starlark.errorf("_allowlist_function_transition attribute must be a label type");
+        }
+        if (attr.getDefaultValueUnchecked() == null) {
+          throw Starlark.errorf(
+              "_allowlist_function_transition attribute must have a default value");
+        }
+        Label defaultLabel = (Label) attr.getDefaultValueUnchecked();
+        // Check the label value for package and target name, to make sure this works properly
+        // in Bazel where it is expected to be found under @bazel_tools.
+        if (!(defaultLabel
+                    .getPackageName()
+                    .equals(FunctionSplitTransitionAllowlist.LABEL.getPackageName())
+                && defaultLabel.getName().equals(FunctionSplitTransitionAllowlist.LABEL.getName()))
+            && !(defaultLabel
+                    .getPackageName()
+                    .equals(FunctionSplitTransitionAllowlist.LEGACY_LABEL.getPackageName())
+                && defaultLabel
+                    .getName()
+                    .equals(FunctionSplitTransitionAllowlist.LEGACY_LABEL.getName()))) {
+          throw Starlark.errorf(
+              "_allowlist_function_transition attribute (%s) does not have the expected value %s",
+              defaultLabel, FunctionSplitTransitionAllowlist.LABEL);
+        }
+        hasFunctionTransitionAllowlist = true;
+      }
+
+      try {
+        builder.addAttribute(attr);
+      } catch (IllegalStateException ex) {
+        // TODO(bazel-team): stop using unchecked exceptions in this way.
+        throw Starlark.errorf("cannot add attribute: %s", ex.getMessage());
+      }
     }
+
+    // the set of subrules is stored in the rule class, primarily for validating that a rule class
+    // declared the subrule when using it.
+    builder.setSubrules(
+        Sequence.cast(subrulesUnchecked, StarlarkSubrule.class, "subrules").getImmutableList());
 
     if (implicitOutputs != Starlark.NONE) {
       if (implicitOutputs instanceof StarlarkFunction) {
@@ -495,7 +625,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
         StarlarkDefinedConfigTransition starlarkDefinedConfigTransition =
             (StarlarkDefinedConfigTransition) cfg;
         builder.cfg(new StarlarkRuleTransitionProvider(starlarkDefinedConfigTransition));
-        builder.setHasStarlarkRuleTransition();
+        hasStarlarkDefinedTransition = true;
       } else if (cfg instanceof PatchTransition) {
         builder.cfg((PatchTransition) cfg);
       } else if (cfg instanceof StarlarkExposedRuleTransitionFactory) {
@@ -523,6 +653,26 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       }
     }
 
+    // TODO(b/121385274): remove when we stop allowlisting starlark transitions
+    if (hasStarlarkDefinedTransition) {
+      if (!bzlFile.getRepository().getNameWithAt().equals("@_builtins")) {
+        if (!hasFunctionTransitionAllowlist) {
+          throw Starlark.errorf(
+              "Use of Starlark transition without allowlist attribute"
+                  + " '_allowlist_function_transition'. See Starlark transitions documentation"
+                  + " for details and usage: %s %s",
+              builder.getRuleDefinitionEnvironmentLabel(), builder.getType());
+        }
+        builder.addAllowlistChecker(FUNCTION_TRANSITION_ALLOWLIST_CHECKER);
+      }
+    } else {
+      if (hasFunctionTransitionAllowlist) {
+        throw Starlark.errorf(
+            "Unused function-based split transition allowlist: %s %s",
+            builder.getRuleDefinitionEnvironmentLabel(), builder.getType());
+      }
+    }
+
     for (Object o : providesArg) {
       if (!StarlarkAttrModule.isProvider(o)) {
         throw Starlark.errorf(
@@ -543,10 +693,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
 
     return new StarlarkRuleFunction(
         builder,
-        type,
-        attributes,
         initializer,
-        Sequence.cast(subrulesUnchecked, StarlarkSubrule.class, "subrules").getImmutableList(),
         loc,
         Starlark.toJavaOptional(doc, String.class).map(Starlark::trimDocString));
   }
@@ -756,10 +903,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     private RuleClass.Builder builder;
 
     private RuleClass ruleClass;
-    private final RuleClassType type;
-    private ImmutableList<Pair<String, StarlarkAttrModule.Descriptor>> attributes;
     @Nullable private final StarlarkFunction initializer;
-    private ImmutableList<StarlarkSubrule> subrules;
     private final Location definitionLocation;
     @Nullable private final String documentation;
     private Label starlarkLabel;
@@ -770,22 +914,11 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     // rich query output mode that includes values from loaded .bzl files.)
     public StarlarkRuleFunction(
         RuleClass.Builder builder,
-        RuleClassType type,
-        ImmutableList<Pair<String, StarlarkAttrModule.Descriptor>> attributes,
         @Nullable StarlarkFunction initializer,
-        ImmutableList<StarlarkSubrule> subrules,
         Location definitionLocation,
         Optional<String> documentation) {
       this.builder = builder;
-      // For documentation generation, we need to distinguish Starlark-defined attributes passed via
-      // `rule(attrs=...) from implicitly added attributes such as "tags" or "testonly".
-      checkArgument(
-          builder.getAttributes().stream().noneMatch(Attribute::starlarkDefined),
-          "Implicitly added attributes are expected to be built-in, not Starlark-defined");
-      this.type = type;
-      this.attributes = attributes;
       this.initializer = initializer;
-      this.subrules = subrules;
       this.definitionLocation = definitionLocation;
       this.documentation = documentation.orElse(null);
     }
@@ -925,7 +1058,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     public void export(EventHandler handler, Label starlarkLabel, String ruleClassName) {
       checkState(ruleClass == null && builder != null);
       this.starlarkLabel = starlarkLabel;
-      if (type == RuleClassType.TEST != TargetUtils.isTestRuleName(ruleClassName)) {
+      if (builder.getType() == RuleClassType.TEST != TargetUtils.isTestRuleName(ruleClassName)) {
         errorf(
             handler,
             "Invalid rule class name '%s', test rule class names must end with '_test' and other"
@@ -934,115 +1067,26 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
         return;
       }
 
-      // the set of subrules is stored in the rule class, primarily for validating that a rule class
-      // declared the subrule when using it.
-      builder.setSubrules(subrules);
       // lift the subrule attributes to the rule class as if they were declared there, this lets us
       // exploit dependency resolution for "free"
       ImmutableList<Pair<String, Descriptor>> subruleAttributes;
       try {
-        subruleAttributes = StarlarkSubrule.discoverAttributesForRule(subrules);
+        subruleAttributes = StarlarkSubrule.discoverAttributesForRule(builder.getSubrules());
       } catch (EvalException e) {
         errorf(handler, "%s", e.getMessage());
         return;
       }
-      if (!subruleAttributes.isEmpty()) {
-        attributes =
-            ImmutableList.<Pair<String, Descriptor>>builder()
-                .addAll(attributes)
-                .addAll(subruleAttributes)
-                .build();
-      }
-
-      // Thus far, we only know if we have a rule transition. While iterating through attributes,
-      // check if we have an attribute transition.
-      boolean hasStarlarkDefinedTransition = builder.hasStarlarkRuleTransition();
-      boolean hasFunctionTransitionAllowlist = false;
-      for (Pair<String, StarlarkAttrModule.Descriptor> attribute : attributes) {
+      for (Pair<String, StarlarkAttrModule.Descriptor> attribute : subruleAttributes) {
         String name = attribute.getFirst();
         StarlarkAttrModule.Descriptor descriptor = attribute.getSecond();
 
         Attribute attr = descriptor.build(name);
-
-        hasStarlarkDefinedTransition |= attr.hasStarlarkDefinedTransition();
-        if (attr.hasAnalysisTestTransition()) {
-          if (!builder.isAnalysisTest()) {
-            errorf(
-                handler,
-                "Only rule definitions with analysis_test=True may have attributes with"
-                    + " analysis_test_transition transitions");
-            continue;
-          }
-          builder.setHasAnalysisTestTransition();
-        }
-        // Check for existence of the function transition allowlist attribute.
-        // TODO(b/121385274): remove when we stop allowlisting starlark transitions
-        if (name.equals(FunctionSplitTransitionAllowlist.ATTRIBUTE_NAME)
-            || name.equals(FunctionSplitTransitionAllowlist.LEGACY_ATTRIBUTE_NAME)) {
-          if (!BuildType.isLabelType(attr.getType())) {
-            errorf(handler, "_allowlist_function_transition attribute must be a label type");
-            continue;
-          }
-          if (attr.getDefaultValueUnchecked() == null) {
-            errorf(handler, "_allowlist_function_transition attribute must have a default value");
-            continue;
-          }
-          Label defaultLabel = (Label) attr.getDefaultValueUnchecked();
-          // Check the label value for package and target name, to make sure this works properly
-          // in Bazel where it is expected to be found under @bazel_tools.
-          if (!(defaultLabel
-                      .getPackageName()
-                      .equals(FunctionSplitTransitionAllowlist.LABEL.getPackageName())
-                  && defaultLabel
-                      .getName()
-                      .equals(FunctionSplitTransitionAllowlist.LABEL.getName()))
-              && !(defaultLabel
-                      .getPackageName()
-                      .equals(FunctionSplitTransitionAllowlist.LEGACY_LABEL.getPackageName())
-                  && defaultLabel
-                      .getName()
-                      .equals(FunctionSplitTransitionAllowlist.LEGACY_LABEL.getName()))) {
-            errorf(
-                handler,
-                "_allowlist_function_transition attribute (%s) does not have the expected value %s",
-                defaultLabel,
-                FunctionSplitTransitionAllowlist.LABEL);
-            continue;
-          }
-          hasFunctionTransitionAllowlist = true;
-        }
 
         try {
           builder.addAttribute(attr);
         } catch (IllegalStateException ex) {
           // TODO(bazel-team): stop using unchecked exceptions in this way.
           errorf(handler, "cannot add attribute: %s", ex.getMessage());
-        }
-      }
-
-      // TODO(b/121385274): remove when we stop allowlisting starlark transitions
-      if (hasStarlarkDefinedTransition) {
-        if (!starlarkLabel.getRepository().getNameWithAt().equals("@_builtins")) {
-          if (!hasFunctionTransitionAllowlist) {
-            errorf(
-                handler,
-                "Use of Starlark transition without allowlist attribute"
-                    + " '_allowlist_function_transition'. See Starlark transitions documentation"
-                    + " for details and usage: %s %s",
-                builder.getRuleDefinitionEnvironmentLabel(),
-                builder.getType());
-            return;
-          }
-          builder.addAllowlistChecker(FUNCTION_TRANSITION_ALLOWLIST_CHECKER);
-        }
-      } else {
-        if (hasFunctionTransitionAllowlist) {
-          errorf(
-              handler,
-              "Unused function-based split transition allowlist: %s %s",
-              builder.getRuleDefinitionEnvironmentLabel(),
-              builder.getType());
-          return;
         }
       }
 
@@ -1055,8 +1099,6 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       }
 
       this.builder = null;
-      this.attributes = null;
-      this.subrules = null;
     }
 
     @FormatMethod

@@ -478,10 +478,6 @@ public final class CppConfiguration extends Fragment
     return cppOptions.experimentalLinkStaticLibrariesOnce;
   }
 
-  public boolean experimentalCcSharedLibraryDebug() {
-    return cppOptions.experimentalCcSharedLibraryDebug;
-  }
-
   public boolean experimentalPlatformCcTest() {
     return cppOptions.experimentalPlatformCcTest;
   }
@@ -700,10 +696,6 @@ public final class CppConfiguration extends Fragment
     return cppOptions.useLLVMCoverageMapFormat;
   }
 
-  public boolean removeCpuCompilerCcToolchainAttributes() {
-    return cppOptions.removeCpuCompilerCcToolchainAttributes;
-  }
-
   @Nullable
   public static PathFragment computeDefaultSysroot(String builtInSysroot) {
     if (builtInSysroot.isEmpty()) {
@@ -803,10 +795,6 @@ public final class CppConfiguration extends Fragment
     return disableNoCopts();
   }
 
-  public boolean loadCcRulesFromBzl() {
-    return cppOptions.loadCcRulesFromBzl;
-  }
-
   public boolean validateTopLevelHeaderInclusions() {
     return cppOptions.validateTopLevelHeaderInclusions;
   }
@@ -822,10 +810,6 @@ public final class CppConfiguration extends Fragment
 
   public boolean useSchedulingMiddlemen() {
     return cppOptions.useSchedulingMiddlemen;
-  }
-
-  public boolean strictHeaderCheckingFromStarlark() {
-    return cppOptions.forceStrictHeaderCheckFromStarlark;
   }
 
   public boolean useCppCompileHeaderMnemonic() {
@@ -932,12 +916,6 @@ public final class CppConfiguration extends Fragment
       throws EvalException {
     CcModule.checkPrivateStarlarkificationAllowlist(thread);
     return experimentalLinkStaticLibrariesOnce();
-  }
-
-  @Override
-  public boolean getExperimentalCcSharedLibraryDebug(StarlarkThread thread) throws EvalException {
-    CcModule.checkPrivateStarlarkificationAllowlist(thread);
-    return experimentalCcSharedLibraryDebug();
   }
 
   @Override

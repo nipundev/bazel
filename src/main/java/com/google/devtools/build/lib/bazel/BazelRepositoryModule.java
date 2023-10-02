@@ -20,7 +20,6 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.devtools.build.lib.analysis.BlazeDirectories;
@@ -36,6 +35,7 @@ import com.google.devtools.build.lib.authandtls.credentialhelper.CredentialHelpe
 import com.google.devtools.build.lib.authandtls.credentialhelper.CredentialModule;
 import com.google.devtools.build.lib.bazel.bzlmod.AttributeValues;
 import com.google.devtools.build.lib.bazel.bzlmod.BazelDepGraphFunction;
+import com.google.devtools.build.lib.bazel.bzlmod.BazelFetchAllFunction;
 import com.google.devtools.build.lib.bazel.bzlmod.BazelLockFileFunction;
 import com.google.devtools.build.lib.bazel.bzlmod.BazelModuleInspectorFunction;
 import com.google.devtools.build.lib.bazel.bzlmod.BazelModuleInspectorValue.AugmentedModule.ResolutionReason;
@@ -118,7 +118,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -148,9 +147,7 @@ public class BazelRepositoryModule extends BlazeModule {
       new MutableSupplier<>();
   private ImmutableMap<RepositoryName, PathFragment> overrides = ImmutableMap.of();
   private ImmutableMap<String, ModuleOverride> moduleOverrides = ImmutableMap.of();
-  private Optional<RootedPath> resolvedFile = Optional.empty();
   private Optional<RootedPath> resolvedFileReplacingWorkspace = Optional.empty();
-  private Set<String> outputVerificationRules = ImmutableSet.of();
   private FileSystem filesystem;
   private List<String> registries;
   private final AtomicBoolean ignoreDevDeps = new AtomicBoolean(false);
@@ -232,7 +229,8 @@ public class BazelRepositoryModule extends BlazeModule {
             directories,
             BazelSkyframeExecutorConstants.EXTERNAL_PACKAGE_HELPER);
     RegistryFactory registryFactory =
-        new RegistryFactoryImpl(downloadManager, clientEnvironmentSupplier);
+        new RegistryFactoryImpl(
+            directories.getWorkspace(), downloadManager, clientEnvironmentSupplier);
     singleExtensionEvalFunction =
         new SingleExtensionEvalFunction(directories, clientEnvironmentSupplier, downloadManager);
 
@@ -276,6 +274,7 @@ public class BazelRepositoryModule extends BlazeModule {
         .addSkyFunction(SkyFunctions.BAZEL_DEP_GRAPH, new BazelDepGraphFunction())
         .addSkyFunction(
             SkyFunctions.BAZEL_LOCK_FILE, new BazelLockFileFunction(directories.getWorkspace()))
+        .addSkyFunction(SkyFunctions.BAZEL_FETCH_ALL, new BazelFetchAllFunction())
         .addSkyFunction(SkyFunctions.BAZEL_MODULE_INSPECTION, new BazelModuleInspectorFunction())
         .addSkyFunction(SkyFunctions.BAZEL_MODULE_RESOLUTION, new BazelModuleResolutionFunction())
         .addSkyFunction(SkyFunctions.SINGLE_EXTENSION_EVAL, singleExtensionEvalFunction)
@@ -309,9 +308,7 @@ public class BazelRepositoryModule extends BlazeModule {
     clientEnvironmentSupplier.set(env.getRepoEnv());
     PackageOptions pkgOptions = env.getOptions().getOptions(PackageOptions.class);
     isFetch.set(pkgOptions != null && pkgOptions.fetch);
-    resolvedFile = Optional.empty();
     resolvedFileReplacingWorkspace = Optional.empty();
-    outputVerificationRules = ImmutableSet.of();
 
     ProcessWrapper processWrapper = ProcessWrapper.fromCommandEnvironment(env);
     starlarkRepositoryFunction.setProcessWrapper(processWrapper);
@@ -509,17 +506,6 @@ public class BazelRepositoryModule extends BlazeModule {
         registries = DEFAULT_REGISTRIES;
       }
 
-      if (!Strings.isNullOrEmpty(repoOptions.repositoryHashFile)) {
-        Path hashFile;
-        if (env.getWorkspace() != null) {
-          hashFile = env.getWorkspace().getRelative(repoOptions.repositoryHashFile);
-        } else {
-          hashFile = filesystem.getPath(repoOptions.repositoryHashFile);
-        }
-        resolvedFile =
-            Optional.of(RootedPath.toRootedPath(Root.absoluteRoot(filesystem), hashFile));
-      }
-
       if (!Strings.isNullOrEmpty(repoOptions.experimentalResolvedFileInsteadOfWorkspace)) {
         Path resolvedFile;
         if (env.getWorkspace() != null) {
@@ -531,11 +517,6 @@ public class BazelRepositoryModule extends BlazeModule {
         }
         resolvedFileReplacingWorkspace =
             Optional.of(RootedPath.toRootedPath(Root.absoluteRoot(filesystem), resolvedFile));
-      }
-
-      if (repoOptions.experimentalVerifyRepositoryRules != null) {
-        outputVerificationRules =
-            ImmutableSet.copyOf(repoOptions.experimentalVerifyRepositoryRules);
       }
 
       RepositoryRemoteExecutorFactory remoteExecutorFactory =
@@ -572,11 +553,6 @@ public class BazelRepositoryModule extends BlazeModule {
     return ImmutableList.of(
         PrecomputedValue.injected(RepositoryDelegatorFunction.REPOSITORY_OVERRIDES, overrides),
         PrecomputedValue.injected(ModuleFileFunction.MODULE_OVERRIDES, moduleOverrides),
-        PrecomputedValue.injected(
-            RepositoryDelegatorFunction.RESOLVED_FILE_FOR_VERIFICATION, resolvedFile),
-        PrecomputedValue.injected(
-            RepositoryDelegatorFunction.OUTPUT_VERIFICATION_REPOSITORY_RULES,
-            outputVerificationRules),
         PrecomputedValue.injected(
             RepositoryDelegatorFunction.RESOLVED_FILE_INSTEAD_OF_WORKSPACE,
             resolvedFileReplacingWorkspace),

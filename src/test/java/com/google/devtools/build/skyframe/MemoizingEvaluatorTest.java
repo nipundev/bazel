@@ -55,6 +55,7 @@ import com.google.devtools.build.skyframe.NodeEntry.DirtyType;
 import com.google.devtools.build.skyframe.NotifyingHelper.EventType;
 import com.google.devtools.build.skyframe.NotifyingHelper.Listener;
 import com.google.devtools.build.skyframe.NotifyingHelper.Order;
+import com.google.devtools.build.skyframe.SkyFunction.Reset;
 import com.google.devtools.build.skyframe.SkyFunctionException.Transience;
 import com.google.devtools.build.skyframe.proto.GraphInconsistency.Inconsistency;
 import com.google.errorprone.annotations.ForOverride;
@@ -66,7 +67,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -144,7 +147,7 @@ public abstract class MemoizingEvaluatorTest {
   }
 
   @ForOverride
-  protected boolean restartSupported() {
+  protected boolean resetSupported() {
     return true;
   }
 
@@ -2358,25 +2361,21 @@ public abstract class MemoizingEvaluatorTest {
   }
 
   /**
-   * Basic test for a {@link SkyFunction.Restart} with no rewinding of dependencies.
+   * Basic test for a {@link SkyFunction.Reset} with no rewinding of dependencies.
    *
    * <p>Ensures that {@link NodeEntry#getResetDirectDeps} is used correctly by Skyframe to avoid
-   * registering duplicate rdep edges when {@code dep} is requested both before and after a restart.
+   * registering duplicate rdep edges when {@code dep} is requested both before and after a reset.
    *
-   * <p>This test covers the case where {@code dep} is newly requested post-restart during a {@link
+   * <p>This test covers the case where {@code dep} is newly requested post-reset during a {@link
    * SkyFunction#compute} invocation that returns a {@link SkyValue}, which exercises a different
    * {@link AbstractParallelEvaluator} code path than the scenario covered by {@link
-   * #restartSelfOnly_extraDepMissingAfterRestart}.
+   * #resetSelfOnly_extraDepMissingAfterReset_initialBuild}.
    */
-  // TODO(b/228090759): Similarly test a restart on an incremental build.
   @Test
-  public void restartSelfOnly_singleDep() throws Exception {
-    assume().that(restartSupported()).isTrue();
+  public void resetSelfOnly_singleDep_initialBuild() throws Exception {
+    assume().that(resetSupported()).isTrue();
 
-    var inconsistencyReceiver = new RecordingInconsistencyReceiver();
-    tester.setGraphInconsistencyReceiver(inconsistencyReceiver);
-    tester.initialize();
-
+    var inconsistencyReceiver = recordInconsistencies();
     SkyKey top = skyKey("top");
     SkyKey dep = skyKey("dep");
 
@@ -2384,7 +2383,7 @@ public abstract class MemoizingEvaluatorTest {
         .getOrCreate(top)
         .setBuilder(
             new SkyFunction() {
-              private boolean restarted = false;
+              private boolean alreadyReset = false;
 
               @Nullable
               @Override
@@ -2393,9 +2392,9 @@ public abstract class MemoizingEvaluatorTest {
                 if (depValue == null) {
                   return null;
                 }
-                if (!restarted) {
-                  restarted = true;
-                  return Restart.of(Restart.newRewindGraphFor(top));
+                if (!alreadyReset) {
+                  alreadyReset = true;
+                  return Reset.of(Reset.newRewindGraphFor(top));
                 }
                 return new StringValue("topVal");
               }
@@ -2416,25 +2415,70 @@ public abstract class MemoizingEvaluatorTest {
   }
 
   /**
-   * Test for a {@link SkyFunction.Restart} with no rewinding of dependencies, with a missing
-   * dependency requested post-restart.
-   *
-   * <p>Ensures that {@link NodeEntry#getResetDirectDeps} is used correctly by Skyframe to avoid
-   * registering duplicate rdep edges when {@code dep} is requested both before and after a restart.
-   *
-   * <p>This test covers the case where {@code dep} is newly requested post-restart in a {@link
-   * SkyFunction#compute} invocation that returns {@code null} (because {@code extraDep} is
-   * missing), which exercises a different {@link AbstractParallelEvaluator} code path than the
-   * scenario covered by {@link #restartSelfOnly_singleDep}.
+   * Similar to {@link #resetSelfOnly_singleDep_initialBuild} except that the reset occurs on the
+   * node's incremental build.
    */
   @Test
-  public void restartSelfOnly_extraDepMissingAfterRestart() throws Exception {
-    assume().that(restartSupported()).isTrue();
+  public void resetSelfOnly_singleDep_incrementalBuild() throws Exception {
+    assume().that(resetSupported()).isTrue();
+    assume().that(incrementalitySupported()).isTrue();
 
-    var inconsistencyReceiver = new RecordingInconsistencyReceiver();
-    tester.setGraphInconsistencyReceiver(inconsistencyReceiver);
-    tester.initialize();
+    var inconsistencyReceiver = recordInconsistencies();
+    SkyKey top = skyKey("top");
+    SkyKey dep = nonHermeticKey("dep");
 
+    tester
+        .getOrCreate(top)
+        .setBuilder(
+            new SkyFunction() {
+              private boolean alreadyReset = false;
+
+              @Nullable
+              @Override
+              public SkyValue compute(SkyKey skyKey, Environment env) throws InterruptedException {
+                var depValue = (StringValue) env.getValue(dep);
+                if (depValue == null) {
+                  return null;
+                }
+                if (depValue.getValue().equals("depVal2") && !alreadyReset) {
+                  alreadyReset = true;
+                  return Reset.of(Reset.newRewindGraphFor(top));
+                }
+                return new StringValue("topVal");
+              }
+            });
+
+    tester.getOrCreate(dep).setConstantValue(new StringValue("depVal1"));
+    tester.eval(/* keepGoing= */ false, top);
+    assertThat(inconsistencyReceiver).isEmpty();
+
+    tester.set(dep, new StringValue("depVal2"));
+    tester.invalidate();
+    var result = tester.eval(/* keepGoing= */ false, top);
+
+    assertThatEvaluationResult(result).hasEntryThat(top).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver).containsExactly(InconsistencyData.resetRequested(top));
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).containsExactly(top);
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top).containsExactly(dep);
+  }
+
+  /**
+   * Test for a {@link SkyFunction.Reset} with no rewinding of dependencies, with a missing
+   * dependency requested post-reset.
+   *
+   * <p>Ensures that {@link NodeEntry#getResetDirectDeps} is used correctly by Skyframe to avoid
+   * registering duplicate rdep edges when {@code dep} is requested both before and after a reset.
+   *
+   * <p>This test covers the case where {@code dep} is newly requested post-reset in a {@link
+   * SkyFunction#compute} invocation that returns {@code null} (because {@code extraDep} is
+   * missing), which exercises a different {@link AbstractParallelEvaluator} code path than the
+   * scenario covered by {@link #resetSelfOnly_singleDep_initialBuild}.
+   */
+  @Test
+  public void resetSelfOnly_extraDepMissingAfterReset_initialBuild() throws Exception {
+    assume().that(resetSupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
     SkyKey top = skyKey("top");
     SkyKey dep = skyKey("dep");
     SkyKey extraDep = skyKey("extraDep");
@@ -2443,7 +2487,7 @@ public abstract class MemoizingEvaluatorTest {
         .getOrCreate(top)
         .setBuilder(
             new SkyFunction() {
-              private boolean restarted = false;
+              private boolean alreadyReset = false;
 
               @Nullable
               @Override
@@ -2452,9 +2496,9 @@ public abstract class MemoizingEvaluatorTest {
                 if (depValue == null) {
                   return null;
                 }
-                if (!restarted) {
-                  restarted = true;
-                  return Restart.of(Restart.newRewindGraphFor(top));
+                if (!alreadyReset) {
+                  alreadyReset = true;
+                  return Reset.of(Reset.newRewindGraphFor(top));
                 }
                 var extraDepValue = env.getValue(extraDep);
                 if (extraDepValue == null) {
@@ -2484,20 +2528,74 @@ public abstract class MemoizingEvaluatorTest {
   }
 
   /**
-   * Tests that if a dependency is requested prior to a {@link SkyFunction.Restart} but not after,
+   * Similar to {@link #resetSelfOnly_extraDepMissingAfterReset_initialBuild} except that the reset
+   * occurs on the node's incremental build.
+   */
+  @Test
+  public void resetSelfOnly_extraDepMissingAfterReset_incrementalBuild() throws Exception {
+    assume().that(resetSupported()).isTrue();
+    assume().that(incrementalitySupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
+    SkyKey top = skyKey("top");
+    SkyKey dep = nonHermeticKey("dep");
+    SkyKey extraDep = skyKey("extraDep");
+
+    tester
+        .getOrCreate(top)
+        .setBuilder(
+            new SkyFunction() {
+              private boolean alreadyReset = false;
+
+              @Nullable
+              @Override
+              public SkyValue compute(SkyKey skyKey, Environment env) throws InterruptedException {
+                var depValue = (StringValue) env.getValue(dep);
+                if (depValue == null) {
+                  return null;
+                }
+                if (depValue.getValue().equals("depVal2") && !alreadyReset) {
+                  alreadyReset = true;
+                  return Reset.of(Reset.newRewindGraphFor(top));
+                }
+                var extraDepValue = env.getValue(extraDep);
+                if (extraDepValue == null) {
+                  return null;
+                }
+                return new StringValue("topVal");
+              }
+            });
+    tester.getOrCreate(dep).setConstantValue(new StringValue("depVal1"));
+    tester.getOrCreate(extraDep).setConstantValue(new StringValue("extraDepVal"));
+    tester.eval(/* keepGoing= */ false, top);
+    assertThat(inconsistencyReceiver).isEmpty();
+
+    tester.set(dep, new StringValue("depVal2"));
+    tester.invalidate();
+    var result = tester.eval(/* keepGoing= */ false, top);
+
+    assertThatEvaluationResult(result).hasEntryThat(top).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver).containsExactly(InconsistencyData.resetRequested(top));
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).containsExactly(top);
+    assertThatEvaluationResult(result)
+        .hasDirectDepsInGraphThat(top)
+        .containsExactly(dep, extraDep)
+        .inOrder();
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(extraDep).containsExactly(top);
+  }
+
+  /**
+   * Tests that if a dependency is requested prior to a {@link SkyFunction.Reset} but not after,
    * then the corresponding reverse dep edge is removed.
    *
    * <p>This happens in practice with input-discovering actions, which use mutable state to track
    * input discovery, resulting in unstable dependencies.
    */
   @Test
-  public void restartSelfOnly_depNotRequestedAgainAfterRestart() throws Exception {
-    assume().that(restartSupported()).isTrue();
+  public void resetSelfOnly_depNotRequestedAgainAfterReset() throws Exception {
+    assume().that(resetSupported()).isTrue();
 
-    var inconsistencyReceiver = new RecordingInconsistencyReceiver();
-    tester.setGraphInconsistencyReceiver(inconsistencyReceiver);
-    tester.initialize();
-
+    var inconsistencyReceiver = recordInconsistencies();
     SkyKey top = skyKey("top");
     SkyKey flakyDep = skyKey("flakyDep");
     SkyKey stableDep = skyKey("stableDep");
@@ -2506,21 +2604,21 @@ public abstract class MemoizingEvaluatorTest {
         .getOrCreate(top)
         .setBuilder(
             new SkyFunction() {
-              private boolean restarted = false;
+              private boolean alreadyReset = false;
 
               @Nullable
               @Override
               public SkyValue compute(SkyKey skyKey, Environment env) throws InterruptedException {
                 env.getValuesAndExceptions(
-                    restarted
+                    alreadyReset
                         ? ImmutableList.of(stableDep)
                         : ImmutableList.of(stableDep, flakyDep));
                 if (env.valuesMissing()) {
                   return null;
                 }
-                if (!restarted) {
-                  restarted = true;
-                  return Restart.of(Restart.newRewindGraphFor(top));
+                if (!alreadyReset) {
+                  alreadyReset = true;
+                  return Reset.of(Reset.newRewindGraphFor(top));
                 }
                 return new StringValue("topVal");
               }
@@ -2554,14 +2652,11 @@ public abstract class MemoizingEvaluatorTest {
    * --nokeep_going} build or if the user hits ctrl+c.
    */
   @Test
-  public void restartSelfOnly_evaluationAborted() throws Exception {
-    assume().that(restartSupported()).isTrue();
+  public void resetSelfOnly_evaluationAborted() throws Exception {
+    assume().that(resetSupported()).isTrue();
     assume().that(incrementalitySupported()).isTrue();
 
-    var inconsistencyReceiver = new RecordingInconsistencyReceiver();
-    tester.setGraphInconsistencyReceiver(inconsistencyReceiver);
-    tester.initialize();
-
+    var inconsistencyReceiver = recordInconsistencies();
     SkyKey top = skyKey("top");
     SkyKey dep = skyKey("dep");
 
@@ -2569,20 +2664,20 @@ public abstract class MemoizingEvaluatorTest {
         .getOrCreate(top)
         .setBuilder(
             new SkyFunction() {
-              private boolean restarted = false;
+              private boolean alreadyReset = false;
 
               @Nullable
               @Override
               public SkyValue compute(SkyKey skyKey, Environment env) throws InterruptedException {
-                if (restarted) {
+                if (alreadyReset) {
                   throw new InterruptedException("Evaluation aborted");
                 }
                 var depValue = env.getValue(dep);
                 if (depValue == null) {
                   return null;
                 }
-                restarted = true;
-                return Restart.of(Restart.newRewindGraphFor(top));
+                alreadyReset = true;
+                return Reset.of(Reset.newRewindGraphFor(top));
               }
             });
     tester.getOrCreate(dep).setConstantValue(new StringValue("depVal"));
@@ -2599,6 +2694,261 @@ public abstract class MemoizingEvaluatorTest {
     assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).isEmpty();
   }
 
+  /** Basic test of rewinding. */
+  @Test
+  public void rewindOneDep() throws Exception {
+    assume().that(resetSupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
+    var rewindableFunction = new RewindableFunction();
+    SkyKey top = skyKey("top");
+    SkyKey dep = skyKey("dep");
+
+    tester.getOrCreate(dep).setBuilder(rewindableFunction);
+    tester
+        .getOrCreate(top)
+        .setBuilder(
+            (skyKey, env) -> {
+              var depValue = (StringValue) env.getValue(dep);
+              if (depValue == null) {
+                return null;
+              }
+              if (depValue.equals(RewindableFunction.STALE_VALUE)) {
+                var rewindGraph = Reset.newRewindGraphFor(top);
+                rewindGraph.putEdge(top, dep);
+                return Reset.of(rewindGraph);
+              }
+              assertThat(depValue).isEqualTo(RewindableFunction.FRESH_VALUE);
+              return new StringValue("topVal");
+            });
+
+    var result = tester.eval(/* keepGoing= */ false, top);
+
+    assertThatEvaluationResult(result).hasEntryThat(top).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver)
+        .containsExactly(
+            InconsistencyData.resetRequested(top),
+            InconsistencyData.rewind(top, ImmutableSet.of(dep)));
+    assertThat(rewindableFunction.calls).isEqualTo(2);
+
+    if (!incrementalitySupported()) {
+      return; // Skip assertions on dependency edges when they aren't kept.
+    }
+
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).containsExactly(top);
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top).containsExactly(dep);
+  }
+
+  /**
+   * Tests the case where multiple parents attempt to rewind the same node concurrently, one
+   * successfully dirties the node, and the other observes the node as already dirty.
+   */
+  @Test
+  public void twoParentsRewindSameDep_markedDirtyOnce() throws Exception {
+    assume().that(resetSupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
+    var rewindableFunction = new RewindableFunction();
+    CyclicBarrier parentBarrier = new CyclicBarrier(2);
+    SkyKey top1 = skyKey("top1");
+    SkyKey top2 = skyKey("top2");
+    SkyKey dep = skyKey("dep");
+
+    tester.getOrCreate(dep).setBuilder(rewindableFunction);
+    injectGraphListenerForTesting(
+        (key, type, order, context) -> {
+          if (type == EventType.MARK_DIRTY && order == Order.AFTER) {
+            awaitUnchecked(parentBarrier);
+          }
+        },
+        /* deterministic= */ false);
+    SkyFunction parentFunction =
+        (skyKey, env) -> {
+          var depValue = (StringValue) env.getValue(dep);
+          if (depValue == null) {
+            return null;
+          }
+          if (depValue.equals(RewindableFunction.STALE_VALUE)) {
+            awaitUnchecked(parentBarrier);
+            var rewindGraph = Reset.newRewindGraphFor(skyKey);
+            rewindGraph.putEdge(skyKey, dep);
+            return Reset.of(rewindGraph);
+          }
+          assertThat(depValue).isEqualTo(RewindableFunction.FRESH_VALUE);
+          return new StringValue("topVal");
+        };
+    tester.getOrCreate(top1).setBuilder(parentFunction);
+    tester.getOrCreate(top2).setBuilder(parentFunction);
+
+    var result = tester.eval(/* keepGoing= */ false, top1, top2);
+
+    assertThatEvaluationResult(result).hasEntryThat(top1).isEqualTo(new StringValue("topVal"));
+    assertThatEvaluationResult(result).hasEntryThat(top2).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver)
+        .containsExactly(
+            InconsistencyData.resetRequested(top1),
+            InconsistencyData.rewind(top1, ImmutableSet.of(dep)),
+            InconsistencyData.resetRequested(top2),
+            InconsistencyData.rewind(top2, ImmutableSet.of(dep)));
+    assertThat(rewindableFunction.calls).isEqualTo(2);
+
+    if (!incrementalitySupported()) {
+      return; // Skip assertions on dependency edges when they aren't kept.
+    }
+
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top1).containsExactly(dep);
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top2).containsExactly(dep);
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).containsExactly(top1, top2);
+  }
+
+  /**
+   * Tests the case where multiple parents attempt to rewind the same node concurrently and one
+   * successfully dirties the node, which then completes before the second parent dirties the node
+   * again.
+   */
+  @Test
+  public void twoParentsRewindSameDep_markedDirtyTwice() throws Exception {
+    assume().that(resetSupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
+    var rewindableFunction = new RewindableFunction();
+    CyclicBarrier parentBarrier = new CyclicBarrier(2);
+    AtomicBoolean isFirstParent = new AtomicBoolean(true);
+    CountDownLatch firstParentDone = new CountDownLatch(1);
+    SkyKey top1 = skyKey("top1");
+    SkyKey top2 = skyKey("top2");
+    SkyKey dep = skyKey("dep");
+
+    tester.getOrCreate(dep).setBuilder(rewindableFunction);
+    injectGraphListenerForTesting(
+        (key, type, order, context) -> {
+          if (type == EventType.MARK_DIRTY && order == Order.BEFORE) {
+            if (!isFirstParent.getAndSet(false)) {
+              // Lost the race. Wait for the first parent to finish so we rewind again. We could
+              // just wait for dep to finish, but then we might mark it dirty before the first
+              // parent uses it, which would lead to flaky BUILDING_PARENT_FOUND_UNDONE_CHILD
+              // inconsistencies.
+              Uninterruptibles.awaitUninterruptibly(firstParentDone);
+            }
+          }
+        },
+        /* deterministic= */ false);
+    SkyFunction parentFunction =
+        (skyKey, env) -> {
+          var depValue = (StringValue) env.getValue(dep);
+          if (depValue == null) {
+            return null;
+          }
+          if (depValue.equals(RewindableFunction.STALE_VALUE)) {
+            awaitUnchecked(parentBarrier);
+            var rewindGraph = Reset.newRewindGraphFor(skyKey);
+            rewindGraph.putEdge(skyKey, dep);
+            return Reset.of(rewindGraph);
+          }
+          assertThat(depValue).isEqualTo(RewindableFunction.FRESH_VALUE);
+          firstParentDone.countDown();
+          return new StringValue("topVal");
+        };
+    tester.getOrCreate(top1).setBuilder(parentFunction);
+    tester.getOrCreate(top2).setBuilder(parentFunction);
+
+    var result = tester.eval(/* keepGoing= */ false, top1, top2);
+
+    assertThatEvaluationResult(result).hasEntryThat(top1).isEqualTo(new StringValue("topVal"));
+    assertThatEvaluationResult(result).hasEntryThat(top2).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver)
+        .containsExactly(
+            InconsistencyData.resetRequested(top1),
+            InconsistencyData.rewind(top1, ImmutableSet.of(dep)),
+            InconsistencyData.resetRequested(top2),
+            InconsistencyData.rewind(top2, ImmutableSet.of(dep)));
+    assertThat(rewindableFunction.calls).isEqualTo(3);
+
+    if (!incrementalitySupported()) {
+      return; // Skip assertions on dependency edges when they aren't kept.
+    }
+
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top1).containsExactly(dep);
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top2).containsExactly(dep);
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(dep).containsExactly(top1, top2);
+  }
+
+  private static void awaitUnchecked(CyclicBarrier barrier) {
+    try {
+      barrier.await();
+    } catch (InterruptedException | BrokenBarrierException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  /**
+   * Test for a rewind graph with depth > 1.
+   *
+   * <p>Since {@code mid} simply propagates the value of {@code bottom}, {@code top} must rewind
+   * both {@code mid} and {@code bottom}. See {@link
+   * com.google.devtools.build.lib.actions.ActionExecutionMetadata#mayInsensitivelyPropagateInputs}
+   * for the case that this test is simulating.
+   */
+  @Test
+  public void rewindTransitiveDep() throws Exception {
+    assume().that(resetSupported()).isTrue();
+
+    var inconsistencyReceiver = recordInconsistencies();
+    var rewindableFunction = new RewindableFunction();
+    SkyKey top = skyKey("top");
+    SkyKey mid = skyKey("mid");
+    SkyKey bottom = skyKey("bottom");
+
+    tester.getOrCreate(bottom).setBuilder(rewindableFunction);
+    tester.getOrCreate(mid).addDependency(bottom).setComputedValue(COPY);
+    tester
+        .getOrCreate(top)
+        .setBuilder(
+            new SkyFunction() {
+              @Nullable
+              @Override
+              public SkyValue compute(SkyKey skyKey, Environment env) throws InterruptedException {
+                var midValue = (StringValue) env.getValue(mid);
+                if (midValue == null) {
+                  return null;
+                }
+                if (midValue.equals(RewindableFunction.STALE_VALUE)) {
+                  var rewindGraph = Reset.newRewindGraphFor(top);
+                  rewindGraph.putEdge(top, mid);
+                  rewindGraph.putEdge(mid, bottom);
+                  return Reset.of(rewindGraph);
+                }
+                assertThat(midValue).isEqualTo(RewindableFunction.FRESH_VALUE);
+                return new StringValue("topVal");
+              }
+            });
+
+    var result = tester.eval(/* keepGoing= */ false, top);
+
+    assertThatEvaluationResult(result).hasEntryThat(top).isEqualTo(new StringValue("topVal"));
+    assertThat(inconsistencyReceiver)
+        .containsExactly(
+            InconsistencyData.resetRequested(top),
+            InconsistencyData.rewind(top, ImmutableSet.of(mid, bottom)));
+    assertThat(rewindableFunction.calls).isEqualTo(2);
+
+    if (!incrementalitySupported()) {
+      return; // Skip assertions on dependency edges when they aren't kept.
+    }
+
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(top).containsExactly(mid);
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(mid).containsExactly(top);
+    assertThatEvaluationResult(result).hasDirectDepsInGraphThat(mid).containsExactly(bottom);
+    assertThatEvaluationResult(result).hasReverseDepsInGraphThat(bottom).containsExactly(mid);
+  }
+
+  private RecordingInconsistencyReceiver recordInconsistencies() {
+    var inconsistencyReceiver = new RecordingInconsistencyReceiver();
+    tester.setGraphInconsistencyReceiver(inconsistencyReceiver);
+    tester.initialize();
+    return inconsistencyReceiver;
+  }
+
   private static final class RecordingInconsistencyReceiver
       implements GraphInconsistencyReceiver, Iterable<InconsistencyData> {
     private final List<InconsistencyData> inconsistencies = new ArrayList<>();
@@ -2607,11 +2957,6 @@ public abstract class MemoizingEvaluatorTest {
     public synchronized void noteInconsistencyAndMaybeThrow(
         SkyKey key, @Nullable Collection<SkyKey> otherKeys, Inconsistency inconsistency) {
       inconsistencies.add(InconsistencyData.create(key, otherKeys, inconsistency));
-    }
-
-    @Override
-    public boolean restartPermitted() {
-      return true;
     }
 
     @Override
@@ -2625,6 +2970,22 @@ public abstract class MemoizingEvaluatorTest {
   }
 
   /**
+   * {@link SkyFunction} for rewinding tests that returns {@link #STALE_VALUE} the first time and
+   * {@link #FRESH_VALUE} thereafter.
+   */
+  private static final class RewindableFunction implements SkyFunction {
+    static final StringValue STALE_VALUE = new StringValue("stale");
+    static final StringValue FRESH_VALUE = new StringValue("fresh");
+
+    private int calls;
+
+    @Override
+    public SkyValue compute(SkyKey skyKey, Environment env) {
+      return ++calls == 1 ? STALE_VALUE : FRESH_VALUE;
+    }
+  }
+
+  /**
    * The same dep is requested in two groups, but its value determines what the other dep in the
    * second group is. When it changes, the other dep in the second group should not be requested.
    */
@@ -2632,7 +2993,7 @@ public abstract class MemoizingEvaluatorTest {
   public void sameDepInTwoGroups() throws Exception {
     initializeTester();
 
-    // leaf4 should not built in the second build.
+    // leaf4 should not be built in the second build.
     SkyKey leaf4 = skyKey("leaf4");
     AtomicBoolean shouldNotBuildLeaf4 = new AtomicBoolean(false);
     injectGraphListenerForTesting(
@@ -3358,7 +3719,7 @@ public abstract class MemoizingEvaluatorTest {
    * Utility function to induce a graph clean of whatever value is requested, by trying to build
    * this value and interrupting the build as soon as this value's function evaluation starts.
    */
-  private void failBuildAndRemoveValue(SkyKey value) {
+  private void failBuildAndRemoveValue(SkyKey value) throws InterruptedException {
     tester.set(value, null);
     // Evaluator will think leaf was interrupted because it threw, so it will be cleaned from graph.
     tester.getOrCreate(value, /* markAsModified= */ true).setBuilder(INTERRUPT_BUILDER);
@@ -5114,7 +5475,7 @@ public abstract class MemoizingEvaluatorTest {
   public abstract static class InconsistencyData {
     public abstract SkyKey key();
 
-    public abstract ImmutableList<SkyKey> otherKeys();
+    public abstract ImmutableSet<SkyKey> otherKeys();
 
     public abstract Inconsistency inconsistency();
 
@@ -5122,11 +5483,15 @@ public abstract class MemoizingEvaluatorTest {
       return create(key, /* otherKeys= */ null, Inconsistency.RESET_REQUESTED);
     }
 
+    static InconsistencyData rewind(SkyKey parent, ImmutableSet<SkyKey> children) {
+      return create(parent, children, Inconsistency.PARENT_FORCE_REBUILD_OF_CHILD);
+    }
+
     public static InconsistencyData create(
         SkyKey key, @Nullable Collection<SkyKey> otherKeys, Inconsistency inconsistency) {
       return new AutoValue_MemoizingEvaluatorTest_InconsistencyData(
           key,
-          otherKeys == null ? ImmutableList.of() : ImmutableList.copyOf(otherKeys),
+          otherKeys == null ? ImmutableSet.of() : ImmutableSet.copyOf(otherKeys),
           inconsistency);
     }
   }
@@ -5182,7 +5547,8 @@ public abstract class MemoizingEvaluatorTest {
       return evaluator;
     }
 
-    public void invalidate() {
+    public void invalidate() throws InterruptedException {
+      evaluator.noteEvaluationsAtSameVersionMayBeFinished(reporter);
       differencer.invalidate(getModifiedValues());
       clearModifiedValues();
       progressReceiver.clear();

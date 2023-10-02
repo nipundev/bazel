@@ -81,6 +81,7 @@ import com.google.devtools.build.lib.packages.RequiredProviders;
 import com.google.devtools.build.lib.packages.Rule;
 import com.google.devtools.build.lib.packages.RuleClass;
 import com.google.devtools.build.lib.packages.RuleClass.ConfiguredTargetFactory.RuleErrorException;
+import com.google.devtools.build.lib.packages.StarlarkAspectClass;
 import com.google.devtools.build.lib.packages.StarlarkProviderWrapper;
 import com.google.devtools.build.lib.packages.SymbolGenerator;
 import com.google.devtools.build.lib.packages.Target;
@@ -355,19 +356,11 @@ public final class RuleContext extends TargetContext
     return reporter.hasErrors();
   }
 
-  /**
-   * Returns an immutable map from attribute name to list of configured targets for that attribute.
-   */
-  public ListMultimap<String, ? extends TransitiveInfoCollection> getConfiguredTargetMap() {
-    return Multimaps.transformValues(targetMap, ConfiguredTargetAndData::getConfiguredTarget);
-  }
-
-  /**
-   * Returns an immutable map from attribute name to list of {@link ConfiguredTargetAndData} objects
-   * for that attribute.
-   */
-  public ListMultimap<String, ConfiguredTargetAndData> getConfiguredTargetAndDataMap() {
-    return targetMap;
+  /** Returns a list of all prerequisites as {@code ConfiguredTarget} objects. */
+  public ImmutableList<? extends TransitiveInfoCollection> getAllPrerequisites() {
+    return targetMap.values().stream()
+        .map(ConfiguredTargetAndData::getConfiguredTarget)
+        .collect(toImmutableList());
   }
 
   /** Returns the {@link ConfiguredTargetAndData} the given attribute. */
@@ -876,8 +869,14 @@ public final class RuleContext extends TargetContext
    */
   @Nullable
   public TransitiveInfoCollection getPrerequisite(String attributeName) {
-    ConfiguredTargetAndData result = getPrerequisiteConfiguredTargetAndData(attributeName);
-    return result == null ? null : result.getConfiguredTarget();
+    checkAttributeIsDependency(attributeName);
+    List<ConfiguredTargetAndData> elements = getPrerequisiteConfiguredTargets(attributeName);
+    Preconditions.checkState(
+        elements.size() <= 1,
+        "%s attribute %s produces more than one prerequisite",
+        ruleClassNameForLogging,
+        attributeName);
+    return elements.isEmpty() ? null : elements.get(0).getConfiguredTarget();
   }
 
   /**
@@ -889,22 +888,6 @@ public final class RuleContext extends TargetContext
   public <T extends Info> T getPrerequisite(String attributeName, BuiltinProvider<T> starlarkKey) {
     TransitiveInfoCollection prerequisite = getPrerequisite(attributeName);
     return prerequisite == null ? null : prerequisite.get(starlarkKey);
-  }
-
-  /**
-   * Returns the {@link ConfiguredTargetAndData} that feeds ino this target through the specified
-   * attribute. Returns null if the attribute is empty.
-   */
-  @Nullable
-  public ConfiguredTargetAndData getPrerequisiteConfiguredTargetAndData(String attributeName) {
-    checkAttributeIsDependency(attributeName);
-    List<ConfiguredTargetAndData> elements = getPrerequisiteConfiguredTargets(attributeName);
-    Preconditions.checkState(
-        elements.size() <= 1,
-        "%s attribute %s produces more than one prerequisite",
-        ruleClassNameForLogging,
-        attributeName);
-    return elements.isEmpty() ? null : elements.get(0);
   }
 
   /**
@@ -1420,28 +1403,6 @@ public final class RuleContext extends TargetContext
   }
 
   /**
-   * Returns the sole file in the "srcs" attribute. Reports an error and (possibly) returns null if
-   * "srcs" does not identify a single file of the expected type.
-   */
-  @Nullable
-  public Artifact getSingleSource(String fileTypeName) {
-    List<Artifact> srcs = PrerequisiteArtifacts.get(this, "srcs").list();
-    switch (srcs.size()) {
-      case 0: // error already issued by getSrc()
-        return null;
-      case 1: // ok
-        return Iterables.getOnlyElement(srcs);
-      default:
-        attributeError("srcs", "only a single " + fileTypeName + " is allowed here");
-        return srcs.get(0);
-    }
-  }
-
-  public Artifact getSingleSource() {
-    return getSingleSource(ruleClassNameForLogging + " source file");
-  }
-
-  /**
    * Returns a path fragment qualified by the rule name and unique fragment to disambiguate
    * artifacts produced from the source file appearing in multiple rules.
    *
@@ -1494,25 +1455,6 @@ public final class RuleContext extends TargetContext
     }
   }
 
-  /**
-   * Returns the label to which the {@code NODEP_LABEL} attribute {@code attrName} refers, checking
-   * that it is a valid label, and that it is referring to a local target. Reports a warning
-   * otherwise.
-   */
-  @Nullable
-  public Label getLocalNodepLabelAttribute(String attrName) {
-    Label label = attributes().get(attrName, BuildType.NODEP_LABEL);
-    if (label == null) {
-      return null;
-    }
-
-    if (!getTarget().getLabel().getPackageFragment().equals(label.getPackageFragment())) {
-      attributeWarning(attrName, "does not reference a local rule");
-    }
-
-    return label;
-  }
-
   @Override
   public Artifact getImplicitOutputArtifact(ImplicitOutputsFunction function)
       throws InterruptedException {
@@ -1552,23 +1494,6 @@ public final class RuleContext extends TargetContext
   // after its introduction in cl/252148134.
   private Artifact getImplicitOutputArtifact(String path, boolean contentBasedPath) {
     return getPackageRelativeArtifact(path, getBinOrGenfilesDirectory(), contentBasedPath);
-  }
-
-  /**
-   * Convenience method to return a configured target for the "compiler" attribute. Allows caller to
-   * decide whether a warning should be printed if the "compiler" attribute is not set to the
-   * default value.
-   *
-   * @param warnIfNotDefault if true, print a warning if the value for the "compiler" attribute is
-   *     set to something other than the default
-   * @return a ConfiguredTarget for the "compiler" attribute
-   */
-  public FilesToRunProvider getCompiler(boolean warnIfNotDefault) {
-    Label label = attributes().get("compiler", BuildType.LABEL);
-    if (warnIfNotDefault && !label.equals(rule.getAttrDefaultValue("compiler"))) {
-      attributeWarning("compiler", "setting the compiler is strongly discouraged");
-    }
-    return getExecutablePrerequisite("compiler");
   }
 
   /**
@@ -2007,9 +1932,7 @@ public final class RuleContext extends TargetContext
       String ruleClass = prerequisite.getRuleClass();
       if (!ruleClass.isEmpty()) {
         String reason =
-            attribute
-                .getValidityPredicate()
-                .checkValid(target.getAssociatedRule(), ruleClass, prerequisite.getRuleTags());
+            attribute.getValidityPredicate().checkValid(target.getAssociatedRule(), ruleClass);
         if (reason != null) {
           reportBadPrerequisite(attribute, prerequisite, reason, false);
         }
@@ -2089,6 +2012,20 @@ public final class RuleContext extends TargetContext
      */
     public boolean isVisible(TransitiveInfoCollection prerequisite) {
       return RuleContext.isVisible(target.getAssociatedRule(), prerequisite);
+    }
+
+    @Nullable
+    Aspect getMainAspect() {
+      return Streams.findLast(aspects.stream()).orElse(null);
+    }
+
+    boolean isStarlarkRuleOrAspect() {
+      Aspect mainAspect = getMainAspect();
+      if (mainAspect != null) {
+        return mainAspect.getAspectClass() instanceof StarlarkAspectClass;
+      } else {
+        return getRule().getRuleClassObject().getRuleDefinitionEnvironmentLabel() != null;
+      }
     }
 
     private void validateDirectPrerequisiteFileTypes(

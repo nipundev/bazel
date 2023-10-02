@@ -155,7 +155,6 @@ import com.google.devtools.build.lib.repository.ExternalPackageHelper;
 import com.google.devtools.build.lib.rules.genquery.GenQueryConfiguration.GenQueryOptions;
 import com.google.devtools.build.lib.rules.genquery.GenQueryDirectPackageProviderFactory;
 import com.google.devtools.build.lib.rules.repository.ResolvedFileFunction;
-import com.google.devtools.build.lib.rules.repository.ResolvedHashesFunction;
 import com.google.devtools.build.lib.runtime.KeepGoingOption;
 import com.google.devtools.build.lib.server.FailureDetails;
 import com.google.devtools.build.lib.server.FailureDetails.BuildConfiguration.Code;
@@ -186,6 +185,11 @@ import com.google.devtools.build.lib.skyframe.RepositoryMappingValue.RepositoryM
 import com.google.devtools.build.lib.skyframe.SkyframeActionExecutor.ActionCompletedReceiver;
 import com.google.devtools.build.lib.skyframe.SkyframeActionExecutor.ProgressSupplier;
 import com.google.devtools.build.lib.skyframe.TopLevelStatusEvents.SomeExecutionStartedEvent;
+import com.google.devtools.build.lib.skyframe.config.BaselineOptionsFunction;
+import com.google.devtools.build.lib.skyframe.config.BuildConfigurationFunction;
+import com.google.devtools.build.lib.skyframe.config.BuildConfigurationKey;
+import com.google.devtools.build.lib.skyframe.config.PlatformMappingFunction;
+import com.google.devtools.build.lib.skyframe.config.PlatformMappingValue;
 import com.google.devtools.build.lib.skyframe.toolchains.RegisteredExecutionPlatformsFunction;
 import com.google.devtools.build.lib.skyframe.toolchains.RegisteredToolchainsCycleReporter;
 import com.google.devtools.build.lib.skyframe.toolchains.RegisteredToolchainsFunction;
@@ -435,7 +439,6 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
   @Nullable final DiffAwarenessManager diffAwarenessManager;
   // If this is null then workspace header pre-calculation won't happen.
   @Nullable private final SkyframeExecutorRepositoryHelpersHolder repositoryHelpersHolder;
-  private boolean repositoryHelpersHolderIgnored = false;
   @Nullable private final WorkspaceInfoFromDiffReceiver workspaceInfoFromDiffReceiver;
   private Set<String> previousClientEnvironment = ImmutableSet.of();
 
@@ -588,17 +591,11 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     this.globFunction = globFunction;
     map.put(SkyFunctions.TARGET_PATTERN, new TargetPatternFunction());
     map.put(SkyFunctions.PREPARE_DEPS_OF_PATTERNS, new PrepareDepsOfPatternsFunction());
-    map.put(
-        SkyFunctions.PREPARE_DEPS_OF_PATTERN,
-        new PrepareDepsOfPatternFunction(pkgLocator, traverseTestSuites()));
-    map.put(
-        SkyFunctions.PREPARE_TEST_SUITES_UNDER_DIRECTORY,
-        new PrepareTestSuitesUnderDirectoryFunction(directories));
+    map.put(SkyFunctions.PREPARE_DEPS_OF_PATTERN, new PrepareDepsOfPatternFunction(pkgLocator));
     map.put(
         SkyFunctions.PREPARE_DEPS_OF_TARGETS_UNDER_DIRECTORY,
         new PrepareDepsOfTargetsUnderDirectoryFunction(directories));
     map.put(SkyFunctions.COLLECT_TARGETS_IN_PACKAGE, new CollectTargetsInPackageFunction());
-    map.put(SkyFunctions.COLLECT_TEST_SUITES_IN_PACKAGE, new CollectTestSuitesInPackageFunction());
     map.put(
         SkyFunctions.COLLECT_PACKAGES_UNDER_DIRECTORY,
         newCollectPackagesUnderDirectoryFunction(directories));
@@ -625,7 +622,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     map.put(SkyFunctions.PACKAGE_ERROR_MESSAGE, new PackageErrorMessageFunction());
     map.put(SkyFunctions.TARGET_PATTERN_ERROR, new TargetPatternErrorFunction());
     map.put(TransitiveTargetKey.NAME, new TransitiveTargetFunction());
-    map.put(Label.TRANSITIVE_TRAVERSAL, getTransitiveTraversalFunction());
+    map.put(Label.TRANSITIVE_TRAVERSAL, new TransitiveTraversalFunction());
     map.put(
         SkyFunctions.CONFIGURED_TARGET,
         new ConfiguredTargetFunction(
@@ -718,7 +715,6 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     map.put(SkyFunctions.SINGLE_TOOLCHAIN_RESOLUTION, new SingleToolchainResolutionFunction());
     map.put(SkyFunctions.TOOLCHAIN_RESOLUTION, new ToolchainResolutionFunction());
     map.put(SkyFunctions.REPOSITORY_MAPPING, new RepositoryMappingFunction());
-    map.put(SkyFunctions.RESOLVED_HASH_VALUES, new ResolvedHashesFunction());
     map.put(SkyFunctions.RESOLVED_FILE, new ResolvedFileFunction());
     map.put(
         SkyFunctions.PLATFORM_MAPPING,
@@ -746,14 +742,6 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
 
     map.putAll(extraSkyFunctions);
     return ImmutableMap.copyOf(map);
-  }
-
-  protected SkyFunction getTransitiveTraversalFunction() {
-    return new TransitiveTraversalFunction();
-  }
-
-  protected boolean traverseTestSuites() {
-    return false;
   }
 
   protected SkyFunction newFileStateFunction() {
@@ -1059,12 +1047,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     // external repository support. They are never needed if external repositories are disabled. To
     // avoid complexity from toggling this, just choose a setting for the lifetime of the server.
     // TODO(b/283125139): Can we support external repositories without tracking transitive packages?
-    return repositoryHelpersHolder != null && !repositoryHelpersHolderIgnored;
-  }
-
-  @VisibleForTesting
-  public void ignoreRepositoryHelpersHolderForTesting() {
-    this.repositoryHelpersHolderIgnored = true;
+    return repositoryHelpersHolder != null;
   }
 
   @VisibleForTesting

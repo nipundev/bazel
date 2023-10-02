@@ -13,9 +13,11 @@
 // limitations under the License.
 package com.google.devtools.build.skyframe;
 
-import com.google.common.collect.ImmutableList;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
+import com.google.devtools.build.skyframe.SkyFunction.Reset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -67,8 +69,14 @@ public interface NodeEntry {
      */
     VERIFIED_CLEAN,
     /**
-     * A rebuilding is required, because either the node itself changed or one of its dependencies
-     * did.
+     * A rebuilding is required for one of the following reasons:
+     *
+     * <ol>
+     *   <li>One of the node's dependencies changed.
+     *   <li>The node is built by a {@link FunctionHermeticity#NONHERMETIC} function and its value
+     *       is known to have changed due to state outside of Skyframe.
+     *   <li>The node was {@linkplain DirtyType#REWIND rewound}.
+     * </ol>
      */
     NEEDS_REBUILDING,
     /** A rebuilding is in progress. */
@@ -152,33 +160,54 @@ public interface NodeEntry {
   MarkedDirtyResult markDirty(DirtyType dirtyType) throws InterruptedException;
 
   /**
-   * Returned by {@link #markDirty} if that call changed the node from done to dirty. Contains a
-   * {@link Collection} of the node's reverse deps for efficiency, because an important use case for
-   * {@link #markDirty} is during invalidation, and the invalidator must immediately afterwards
-   * schedule the invalidation of a node's reverse deps if the invalidator successfully dirties that
-   * node.
+   * Returned by {@link #markDirty} if that call changed the node from done to dirty.
+   *
+   * <p>For nodes marked dirty during invalidation ({@link DirtyType#DIRTY} and {@link
+   * DirtyType#CHANGE}), contains a {@link Collection} of the node's reverse deps for efficiency, so
+   * that the invalidator can schedule the invalidation of a node's reverse deps immediately
+   * afterwards.
+   *
+   * <p>For nodes marked dirty intra-evaluation ({@link DirtyType#REWIND}), reverse deps are not
+   * needed by the caller, so {@link #getReverseDepsUnsafe} must not be called.
    *
    * <p>Warning: {@link #getReverseDepsUnsafe()} may return a live view of the reverse deps
    * collection of the marked-dirty node. The consumer of this data must be careful only to iterate
    * over and consume its values while that collection is guaranteed not to change. This is true
    * during invalidation, because reverse deps don't change during invalidation.
    */
-  final class MarkedDirtyResult {
+  abstract class MarkedDirtyResult {
 
-    private static final MarkedDirtyResult NO_RDEPS = new MarkedDirtyResult(ImmutableList.of());
+    private static final MarkedDirtyResult RESULT_FOR_REWINDING =
+        new MarkedDirtyResult() {
+          @Override
+          public Collection<SkyKey> getReverseDepsUnsafe() {
+            throw new IllegalStateException("Should not need reverse deps for rewinding");
+          }
+        };
 
     public static MarkedDirtyResult withReverseDeps(Collection<SkyKey> reverseDepsUnsafe) {
-      return reverseDepsUnsafe.isEmpty() ? NO_RDEPS : new MarkedDirtyResult(reverseDepsUnsafe);
+      return new ResultWithReverseDeps(reverseDepsUnsafe);
     }
 
-    private final Collection<SkyKey> reverseDepsUnsafe;
-
-    private MarkedDirtyResult(Collection<SkyKey> reverseDepsUnsafe) {
-      this.reverseDepsUnsafe = reverseDepsUnsafe;
+    static MarkedDirtyResult forRewinding() {
+      return RESULT_FOR_REWINDING;
     }
 
-    public Collection<SkyKey> getReverseDepsUnsafe() {
-      return reverseDepsUnsafe;
+    private MarkedDirtyResult() {}
+
+    public abstract Collection<SkyKey> getReverseDepsUnsafe();
+
+    private static final class ResultWithReverseDeps extends MarkedDirtyResult {
+      private final Collection<SkyKey> reverseDepsUnsafe;
+
+      private ResultWithReverseDeps(Collection<SkyKey> reverseDepsUnsafe) {
+        this.reverseDepsUnsafe = checkNotNull(reverseDepsUnsafe);
+      }
+
+      @Override
+      public Collection<SkyKey> getReverseDepsUnsafe() {
+        return reverseDepsUnsafe;
+      }
     }
   }
 
@@ -522,7 +551,12 @@ public interface NodeEntry {
   void removeUnfinishedDeps(Set<SkyKey> unfinishedDeps);
 
   /**
-   * Prepares this node for a restart of its evaluation to recover from an inconsistency.
+   * Prepares this node to reset its evaluation from scratch in order to recover from an
+   * inconsistency.
+   *
+   * <p>Temporary direct deps should be cleared by this call, as they will be added again when
+   * requested during the restarted evaluation of this node. If the graph keeps dependency edges,
+   * however, the temporary direct deps must be accounted for in {@link #getResetDirectDeps}.
    *
    * <p>Called on a {@link DirtyState#REBUILDING} node when one of the following scenarios is
    * observed:
@@ -531,9 +565,9 @@ public interface NodeEntry {
    *   <li>One or more already requested dependencies are not done. This may happen when a
    *       dependency's node was dropped from the graph to save memory, or if a dependency was
    *       {@linkplain DirtyType#REWIND rewound} by another node.
-   *   <li>The corresponding {@link SkyFunction} for this node returned {@link SkyFunction.Restart}
-   *       to indicate that one or more dependencies were done but are in need of {@linkplain
-   *       DirtyType#REWIND rewinding} to regenerate their values.
+   *   <li>The corresponding {@link SkyFunction} for this node returned {@link Reset} to indicate
+   *       that one or more dependencies were done but are in need of {@linkplain DirtyType#REWIND
+   *       rewinding} to regenerate their values.
    * </ol>
    *
    * <p>This method is similar to calling {@link #markDirty} with {@link DirtyType#REWIND} with an
@@ -541,19 +575,15 @@ public interface NodeEntry {
    * its <em>value</em>, while this method is called on a <em>building</em> node because of an issue
    * with a <em>dependency</em>. The dependency will be rewound if we are in scenario 2 above.
    *
-   * <p>Temporary direct deps should be cleared by this call, as they will be added again when
-   * requested during the restarted evaluation of this node. If the graph keeps dependency edges,
-   * however, the temporary direct deps must be accounted for in {@link #getResetDirectDeps}.
-   *
    * <p>Reverse deps on the other hand should be preserved - parents waiting on this node are
    * unaware that it is being restarted and will not register themselves again, yet they still need
    * to be signaled when this node is done.
    */
   @ThreadSafe
-  void resetForRestartFromScratch();
+  void resetEvaluationFromScratch();
 
   /**
-   * If the graph keeps dependency edges and {@link #resetForRestartFromScratch} has been called on
+   * If the graph keeps dependency edges and {@link #resetEvaluationFromScratch} has been called on
    * this node since it was last done, returns the set of temporary direct deps that were registered
    * prior to the restart. Otherwise, returns an empty set.
    *
