@@ -14,6 +14,8 @@
 
 """ Utilities for Java compilation support in Starlark. """
 
+load(":common/java/java_common_internal_for_builtins.bzl", "compile", "run_ijar")
+load(":common/java/java_helper.bzl", "helper")
 load(
     ":common/java/java_info.bzl",
     "JavaInfo",
@@ -23,14 +25,13 @@ load(
     _java_info_merge = "merge",
     _java_info_set_annotation_processing = "set_annotation_processing",
 )
-load(":common/java/message_bundle_info.bzl", "MessageBundleInfo")
-load(":common/java/java_common_internal_for_builtins.bzl", "compile", "run_ijar")
+load(":common/java/java_runtime.bzl", "JavaRuntimeInfo")
 load(":common/java/java_semantics.bzl", "semantics")
+load(":common/java/java_toolchain.bzl", "JavaToolchainInfo")
+load(":common/java/message_bundle_info.bzl", "MessageBundleInfo")
 load(":common/paths.bzl", "paths")
-load(":common/java/java_helper.bzl", "helper")
 
 _java_common_internal = _builtins.internal.java_common_internal_do_not_use
-JavaToolchainInfo = _java_common_internal.JavaToolchainInfo
 JavaRuntimeClasspathInfo = provider(
     "Provider for the runtime classpath contributions of a Java binary.",
     fields = ["runtime_classpath"],
@@ -300,10 +301,9 @@ def _make_java_common():
         "make_non_strict": _make_non_strict,
         "JavaPluginInfo": JavaPluginInfo,
         "JavaToolchainInfo": JavaToolchainInfo,
-        "JavaRuntimeInfo": _java_common_internal.JavaRuntimeInfo,
+        "JavaRuntimeInfo": JavaRuntimeInfo,
         "BootClassPathInfo": _java_common_internal.BootClassPathInfo,
         "JavaRuntimeClasspathInfo": JavaRuntimeClasspathInfo,
-        "experimental_java_proto_library_default_has_services": _java_common_internal.experimental_java_proto_library_default_has_services,
     }
     if _java_common_internal._google_legacy_api_enabled():
         methods.update(

@@ -14,6 +14,7 @@
 
 package com.google.devtools.build.lib.analysis.starlark;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.devtools.build.lib.analysis.starlark.StarlarkSubrule.getRuleAttrName;
 import static org.junit.Assert.assertThrows;
@@ -23,9 +24,12 @@ import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.analysis.ConfiguredTarget;
 import com.google.devtools.build.lib.analysis.FilesToRunProvider;
 import com.google.devtools.build.lib.analysis.actions.FileWriteAction;
+import com.google.devtools.build.lib.analysis.config.transitions.StarlarkExposedRuleTransitionFactory;
 import com.google.devtools.build.lib.analysis.util.BuildViewTestCase;
 import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.cmdline.LabelSyntaxException;
+import com.google.devtools.build.lib.packages.Attribute;
+import com.google.devtools.build.lib.packages.AttributeValueSource;
 import com.google.devtools.build.lib.packages.Provider;
 import com.google.devtools.build.lib.packages.StarlarkProvider;
 import com.google.devtools.build.lib.packages.StructImpl;
@@ -245,7 +249,7 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
         getProvider("//subrule_testing:foo", "//subrule_testing:myrule.bzl", "MyInfo");
 
     assertThat(provider).isNotNull();
-    assertThat(provider.getValue("result")).isEqualTo("called in: @//subrule_testing:foo");
+    assertThat(provider.getValue("result")).isEqualTo("called in: @@//subrule_testing:foo");
   }
 
   @Test
@@ -432,6 +436,28 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
   }
 
   @Test
+  public void testSubruleAttrs_cannotHaveStarlarkTransitions() throws Exception {
+    ev.checkEvalErrorContains(
+        "bad cfg for attribute '_foo': subrules may only have target/exec attributes.",
+        "my_transition = transition(implementation = lambda: None, inputs = [], outputs = [])",
+        "_my_subrule = subrule(",
+        "  implementation = lambda: None,",
+        "  attrs = {'_foo': attr.label(cfg = my_transition)}",
+        ")");
+  }
+
+  @Test
+  public void testSubruleAttrs_cannotHaveNativeTransitions() throws Exception {
+    ev.update("native_transition", (StarlarkExposedRuleTransitionFactory) data -> null);
+    ev.checkEvalErrorContains(
+        "bad cfg for attribute '_foo': subrules may only have target/exec attributes.",
+        "_my_subrule = subrule(",
+        "  implementation = lambda: None,",
+        "  attrs = {'_foo': attr.label(cfg = native_transition)}",
+        ")");
+  }
+
+  @Test
   public void testSubruleAttrs_notVisibleInRuleCtx() throws Exception {
     scratch.file("default/BUILD", "genrule(name = 'default', outs = ['a'], cmd = '')");
     scratch.file(
@@ -454,18 +480,73 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
         "load('myrule.bzl', 'my_rule')",
         "my_rule(name = 'foo')");
 
-    ImmutableList<String> attributes =
+    ImmutableList<String> ruleClassAttributes =
+        getRuleContext(getConfiguredTarget("//subrule_testing:foo"))
+            .getRule()
+            .getRuleClassObject()
+            .getAttributes()
+            .stream()
+            .map(Attribute::getName)
+            .collect(toImmutableList());
+    ImmutableList<String> attributesVisibleToStarlark =
         Sequence.cast(
                 getProvider("//subrule_testing:foo", "//subrule_testing:myrule.bzl", "MyInfo")
                     .getValue("result"),
                 String.class,
                 "")
             .getImmutableList();
+    String ruleAttrName =
+        getRuleAttrName(
+            Label.parseCanonical("//subrule_testing:myrule.bzl"),
+            "_my_subrule",
+            "_foo",
+            AttributeValueSource.DIRECT);
 
-    assertThat(attributes)
-        .doesNotContain(
-            getRuleAttrName(
-                Label.parseCanonical("//subrule_testing:myrule.bzl"), "_my_subrule", "_foo"));
+    assertThat(ruleClassAttributes).contains(ruleAttrName);
+    assertThat(attributesVisibleToStarlark).doesNotContain(ruleAttrName);
+  }
+
+  @Test
+  public void testSubruleAttrs_notVisibleInAspectCtx() throws Exception {
+    scratch.file("default/BUILD", "genrule(name = 'default', outs = ['a'], cmd = '')");
+    scratch.file(
+        "subrule_testing/myrule.bzl",
+        "_my_subrule = subrule(",
+        "  implementation = lambda: None,",
+        "  attrs = {'_foo' : attr.label(default = '//default')},",
+        ")",
+        "MyInfo=provider()",
+        "def _aspect_impl(target, ctx):",
+        "  res = dir(ctx.attr)",
+        "  return MyInfo(result = res)",
+        "my_aspect = aspect(implementation = _aspect_impl, subrules = [_my_subrule])",
+        "def _rule_impl(ctx):",
+        "  return ctx.attr.dep[MyInfo]",
+        "my_rule = rule(",
+        "  implementation = _rule_impl,",
+        "  attrs = {'dep' : attr.label(aspects = [my_aspect])}",
+        ")");
+    scratch.file(
+        "subrule_testing/BUILD",
+        //
+        "load('myrule.bzl', 'my_rule')",
+        "my_rule(name = 'foo', dep = '//default')");
+
+    ImmutableList<String> attributesVisibleToStarlark =
+        Sequence.cast(
+                getProvider("//subrule_testing:foo", "//subrule_testing:myrule.bzl", "MyInfo")
+                    .getValue("result"),
+                String.class,
+                "")
+            .getImmutableList();
+    String ruleAttrName =
+        getRuleAttrName(
+            Label.parseCanonical("//subrule_testing:myrule.bzl"),
+            "_my_subrule",
+            "_foo",
+            AttributeValueSource.DIRECT);
+
+    assertThat(attributesVisibleToStarlark).doesNotContain(ruleAttrName);
   }
 
   @Test
@@ -608,6 +689,46 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
     assertThat(error)
         .hasMessageThat()
         .contains("Error in run: for 'executable', expected FilesToRunProvider, got File");
+  }
+
+  @Test
+  public void testSubruleAttrs_lateBoundDefaultsAreResolved() throws Exception {
+    scratch.file(
+        "my/BUILD",
+        //
+        "cc_binary(name = 'tool')");
+    scratch.file(
+        "subrule_testing/myrule.bzl",
+        "def _subrule_impl(ctx, _tool):",
+        "  return _tool",
+        "_my_subrule = subrule(",
+        "  implementation = _subrule_impl,",
+        "  attrs = {'_tool' : attr.label(",
+        "         default = configuration_field(fragment = 'coverage', name = 'output_generator')",
+        "  )},",
+        ")",
+        "",
+        "MyInfo = provider()",
+        "def _rule_impl(ctx):",
+        "  res = _my_subrule()",
+        "  return MyInfo(result = res)",
+        "",
+        "my_rule = rule(implementation = _rule_impl, subrules = [_my_subrule])");
+    scratch.file(
+        "subrule_testing/BUILD",
+        //
+        "load('myrule.bzl', 'my_rule')",
+        "my_rule(name = 'foo')");
+    // TODO: b/293304174 - use a custom fragment instead of coverage
+    useConfiguration("--collect_code_coverage", "--coverage_output_generator=//my:tool");
+
+    StructImpl provider =
+        getProvider("//subrule_testing:foo", "//subrule_testing:myrule.bzl", "MyInfo");
+
+    assertThat(provider).isNotNull();
+    Object value = provider.getValue("result");
+    assertThat(value).isInstanceOf(ConfiguredTarget.class);
+    assertThat(((ConfiguredTarget) value).getLabel().toString()).isEqualTo("//my:tool");
   }
 
   @Test

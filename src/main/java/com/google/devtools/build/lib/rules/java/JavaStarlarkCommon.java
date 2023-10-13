@@ -49,11 +49,11 @@ import com.google.devtools.build.lib.rules.cpp.CppFileTypes;
 import com.google.devtools.build.lib.rules.cpp.LibraryToLink;
 import com.google.devtools.build.lib.starlarkbuildapi.core.ProviderApi;
 import com.google.devtools.build.lib.starlarkbuildapi.java.JavaCommonApi;
+import com.google.devtools.build.lib.util.OS;
 import net.starlark.java.eval.EvalException;
 import net.starlark.java.eval.Sequence;
 import net.starlark.java.eval.Starlark;
 import net.starlark.java.eval.StarlarkList;
-import net.starlark.java.eval.StarlarkSemantics;
 import net.starlark.java.eval.StarlarkThread;
 import net.starlark.java.eval.StarlarkValue;
 
@@ -62,8 +62,6 @@ public class JavaStarlarkCommon
     implements JavaCommonApi<
         Artifact,
         JavaInfo,
-        JavaToolchainProvider,
-        BootClassPathInfo.Provider,
         ConstraintValueInfo,
         StarlarkRuleContext,
         StarlarkActionFactory> {
@@ -120,7 +118,7 @@ public class JavaStarlarkCommon
   @Override
   public void createHeaderCompilationAction(
       StarlarkRuleContext ctx,
-      JavaToolchainProvider toolchain,
+      Info toolchain,
       Artifact headerJar,
       Artifact headerDepsProto,
       Info pluginInfo,
@@ -160,7 +158,7 @@ public class JavaStarlarkCommon
             javaSemantics,
             JavaHelper.tokenizeJavaOptions(Depset.cast(javacOpts, String.class, "javac_opts")),
             attributesBuilder,
-            toolchain,
+            JavaToolchainProvider.PROVIDER.wrap(toolchain),
             Sequence.cast(additionalInputs, Artifact.class, "additional_inputs")
                 .getImmutableList());
     compilationHelper.enableDirectClasspath(enableDirectClasspath);
@@ -170,7 +168,7 @@ public class JavaStarlarkCommon
   @Override
   public void createCompilationAction(
       StarlarkRuleContext ctx,
-      JavaToolchainProvider javaToolchain,
+      Info javaToolchain,
       Artifact output,
       Artifact manifestProto,
       Info pluginInfo,
@@ -241,7 +239,7 @@ public class JavaStarlarkCommon
             javaSemantics,
             JavaHelper.tokenizeJavaOptions(Depset.cast(javacOpts, String.class, "javac_opts")),
             attributesBuilder,
-            javaToolchain,
+            JavaToolchainProvider.PROVIDER.wrap(javaToolchain),
             Sequence.cast(additionalInputs, Artifact.class, "additional_inputs")
                 .getImmutableList());
     compilationHelper.enableJspecify(enableJSpecify);
@@ -252,8 +250,10 @@ public class JavaStarlarkCommon
   @Override
   // TODO(b/78512644): migrate callers to passing explicit javacopts or using custom toolchains, and
   // delete
-  public StarlarkValue getDefaultJavacOpts(JavaToolchainProvider javaToolchain, boolean asDepset)
-      throws EvalException {
+  public StarlarkValue getDefaultJavacOpts(Info javaToolchainUnchecked, boolean asDepset)
+      throws EvalException, RuleErrorException {
+    JavaToolchainProvider javaToolchain =
+        JavaToolchainProvider.PROVIDER.wrap(javaToolchainUnchecked);
     // We don't have a rule context if the default_javac_opts.java_toolchain parameter is set
     if (asDepset) {
       return Depset.of(String.class, javaToolchain.getJavacOptions(/* ruleContext= */ null));
@@ -264,13 +264,15 @@ public class JavaStarlarkCommon
   }
 
   @Override
-  public Provider getJavaToolchainProvider() {
-    return JavaToolchainProvider.PROVIDER;
+  public ProviderApi getJavaToolchainProvider() {
+    // method exists solely for documentation
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public Provider getJavaRuntimeProvider() {
-    return JavaRuntimeInfo.PROVIDER;
+    // method exists purely for documentation
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -308,13 +310,6 @@ public class JavaStarlarkCommon
             .getAnalysisEnvironment()
             .getBuildInfo(
                 isStampingEnabled, JavaBuildInfoFactory.KEY, ruleContext.getConfiguration()));
-  }
-
-  @Override
-  public boolean getExperimentalJavaProtoLibraryDefaultHasServices(
-      StarlarkSemantics starlarkSemantics) throws EvalException {
-    return starlarkSemantics.getBool(
-        BuildLanguageOptions.EXPERIMENTAL_JAVA_PROTO_LIBRARY_DEFAULT_HAS_SERVICES);
   }
 
   @Override
@@ -426,6 +421,11 @@ public class JavaStarlarkCommon
     return thread
         .getSemantics()
         .getBool(BuildLanguageOptions.INCOMPATIBLE_DISABLE_NON_EXECUTABLE_JAVA_BINARY);
+  }
+
+  @Override
+  public String getCurrentOsName() {
+    return OS.getCurrent().getCanonicalName();
   }
 
   static boolean isInstanceOfProvider(Object obj, Provider provider) {

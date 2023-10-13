@@ -63,7 +63,8 @@ public interface AndroidSemantics {
    * <p>These will come after the default options specified by the toolchain, and before the ones in
    * the {@code javacopts} attribute.
    */
-  ImmutableList<String> getCompatibleJavacOptions(RuleContext ruleContext);
+  ImmutableList<String> getCompatibleJavacOptions(RuleContext ruleContext)
+      throws RuleErrorException;
 
   /**
    * Configures the builder for generating the output jar used to configure the main dex file.
@@ -145,7 +146,8 @@ public interface AndroidSemantics {
       Artifact mainDexList)
       throws InterruptedException;
 
-  default AndroidDataContext makeContextForNative(RuleContext ruleContext) {
+  default AndroidDataContext makeContextForNative(RuleContext ruleContext)
+      throws RuleErrorException {
     return AndroidDataContext.forNative(ruleContext);
   }
 

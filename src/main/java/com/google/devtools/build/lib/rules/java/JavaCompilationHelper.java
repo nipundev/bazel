@@ -26,7 +26,6 @@ import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.ExecutionRequirements;
 import com.google.devtools.build.lib.actions.ParamFileInfo;
 import com.google.devtools.build.lib.actions.ParameterFile;
-import com.google.devtools.build.lib.actions.PathStripper;
 import com.google.devtools.build.lib.analysis.AnalysisEnvironment;
 import com.google.devtools.build.lib.analysis.FilesToRunProvider;
 import com.google.devtools.build.lib.analysis.RuleContext;
@@ -37,8 +36,6 @@ import com.google.devtools.build.lib.analysis.actions.LazyWritePathsFileAction;
 import com.google.devtools.build.lib.analysis.actions.SpawnAction;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue;
 import com.google.devtools.build.lib.analysis.config.CoreOptionConverters.StrictDepsMode;
-import com.google.devtools.build.lib.analysis.config.CoreOptions;
-import com.google.devtools.build.lib.analysis.config.CoreOptions.OutputPathsMode;
 import com.google.devtools.build.lib.analysis.test.InstrumentedFilesCollector;
 import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.collect.nestedset.NestedSet;
@@ -214,7 +211,7 @@ public final class JavaCompilationHelper {
     return builder.build();
   }
 
-  public void createCompileAction(JavaCompileOutputs<Artifact> outputs) {
+  public void createCompileAction(JavaCompileOutputs<Artifact> outputs) throws RuleErrorException {
     if (outputs.genClass() != null) {
       createGenJarAction(
           outputs.output(),
@@ -420,7 +417,7 @@ public final class JavaCompilationHelper {
         || !attributes.getClassPathResources().isEmpty();
   }
 
-  private ImmutableMap<String, String> getExecutionInfo() {
+  private ImmutableMap<String, String> getExecutionInfo() throws RuleErrorException {
     ImmutableMap.Builder<String, String> executionInfo = ImmutableMap.builder();
     ImmutableMap.Builder<String, String> workerInfo = ImmutableMap.builder();
     if (javaToolchain.getJavacSupportsWorkers()) {
@@ -442,7 +439,7 @@ public final class JavaCompilationHelper {
   }
 
   /** Returns the bootclasspath explicit set in attributes if present, or else the default. */
-  public BootClassPathInfo getBootclasspathOrDefault() {
+  public BootClassPathInfo getBootclasspathOrDefault() throws RuleErrorException {
     JavaTargetAttributes attributes = getAttributes();
     if (!attributes.getBootClassPath().isEmpty()) {
       return attributes.getBootClassPath();
@@ -452,7 +449,7 @@ public final class JavaCompilationHelper {
   }
 
   /** Adds coverage support from java_toolchain. */
-  public void addCoverageSupport() {
+  public void addCoverageSupport() throws RuleErrorException {
     FilesToRunProvider jacocoRunner = javaToolchain.getJacocoRunner();
     if (jacocoRunner == null) {
       ruleContext.ruleError(
@@ -495,7 +492,7 @@ public final class JavaCompilationHelper {
             ruleContext.getConfiguration(), ruleContext.getLabel(), ruleContext.isTestTarget());
   }
 
-  private boolean shouldUseHeaderCompilation() {
+  private boolean shouldUseHeaderCompilation() throws RuleErrorException {
     if (!getJavaConfiguration().useHeaderCompilation()) {
       return false;
     }
@@ -541,7 +538,8 @@ public final class JavaCompilationHelper {
    * @param headerJar the jar output of this java compilation
    * @param headerDeps the .jdeps output of this java compilation
    */
-  public void createHeaderCompilationAction(Artifact headerJar, Artifact headerDeps) {
+  public void createHeaderCompilationAction(Artifact headerJar, Artifact headerDeps)
+      throws RuleErrorException {
 
     JavaTargetAttributes attributes = getAttributes();
 
@@ -563,7 +561,8 @@ public final class JavaCompilationHelper {
     builder.build(javaToolchain);
   }
 
-  private JavaHeaderCompileAction.Builder getJavaHeaderCompileActionBuilder() {
+  private JavaHeaderCompileAction.Builder getJavaHeaderCompileActionBuilder()
+      throws RuleErrorException {
     JavaTargetAttributes attributes = getAttributes();
     JavaHeaderCompileAction.Builder builder = JavaHeaderCompileAction.newBuilder(ruleContext);
     builder.setSourceFiles(attributes.getSourceFiles());
@@ -603,10 +602,8 @@ public final class JavaCompilationHelper {
   }
 
   private void createGenJarAction(
-      Artifact classJar,
-      Artifact manifestProto,
-      Artifact genClassJar,
-      JavaRuntimeInfo hostJavabase) {
+      Artifact classJar, Artifact manifestProto, Artifact genClassJar, JavaRuntimeInfo hostJavabase)
+      throws RuleErrorException {
     getRuleContext()
         .registerAction(
             new SpawnAction.Builder()
@@ -631,7 +628,7 @@ public final class JavaCompilationHelper {
   }
 
   /** Returns the GenClass deploy jar Artifact. */
-  private Artifact getGenClassJar(RuleContext ruleContext) {
+  private Artifact getGenClassJar(RuleContext ruleContext) throws RuleErrorException {
     Artifact genClass = javaToolchain.getGenClass();
     if (genClass != null) {
       return genClass;
@@ -647,7 +644,8 @@ public final class JavaCompilationHelper {
     return getJavaConfiguration().getGenerateJavaDeps() && attributes.hasSources();
   }
 
-  private void createResourceJarAction(Artifact resourceJar, ImmutableList<Artifact> extraJars) {
+  private void createResourceJarAction(Artifact resourceJar, ImmutableList<Artifact> extraJars)
+      throws RuleErrorException {
     checkNotNull(resourceJar, "resource jar output must not be null");
     JavaTargetAttributes attributes = getAttributes();
     new ResourceJarActionBuilder()
@@ -662,7 +660,8 @@ public final class JavaCompilationHelper {
         .build(semantics, ruleContext, execGroup);
   }
 
-  public void createSourceJarAction(Artifact outputJar, @Nullable Artifact gensrcJar) {
+  public void createSourceJarAction(Artifact outputJar, @Nullable Artifact gensrcJar)
+      throws RuleErrorException {
     JavaTargetAttributes attributes = getAttributes();
     NestedSetBuilder<Artifact> resourceJars = NestedSetBuilder.stableOrder();
     resourceJars.addAll(attributes.getSourceJars());
@@ -685,7 +684,7 @@ public final class JavaCompilationHelper {
    * @return the header jar (if requested), or ijar (if requested), or else the class jar
    */
   public Artifact createCompileTimeJarAction(
-      Artifact runtimeJar, JavaCompilationArtifacts.Builder builder) {
+      Artifact runtimeJar, JavaCompilationArtifacts.Builder builder) throws RuleErrorException {
     Artifact jar;
     boolean isFullJar = false;
     if (shouldUseHeaderCompilation()) {
@@ -842,7 +841,8 @@ public final class JavaCompilationHelper {
       Artifact inputJar,
       @Nullable Label targetLabel,
       @Nullable String injectingRuleKind,
-      boolean addPrefix) {
+      boolean addPrefix)
+      throws RuleErrorException {
     Artifact interfaceJar = getIjarArtifact(ruleContext, inputJar, addPrefix);
     FilesToRunProvider ijarTarget = javaToolchain.getIjar();
     if (!ruleContext.hasErrors()) {
@@ -899,25 +899,5 @@ public final class JavaCompilationHelper {
     String basename = FileSystemUtils.removeExtension(path.getBaseName()) + suffix;
     path = path.replaceName(prefix + basename);
     return context.getDerivedArtifact(path, artifact.getRoot());
-  }
-
-  /**
-   * Canonical place to determine if a Java action should strip config prefixes from its output
-   * paths.
-   *
-   * <p>See {@link PathStripper}.
-   */
-  static boolean stripOutputPaths(
-      NestedSet<Artifact> actionInputs, BuildConfigurationValue configuration) {
-    CoreOptions coreOptions = configuration.getOptions().get(CoreOptions.class);
-    return coreOptions.outputPathsMode == OutputPathsMode.STRIP
-        && PathStripper.isPathStrippable(
-            actionInputs,
-            PathFragment.create(configuration.getDirectories().getRelativeOutputPath()));
-  }
-
-  /** The output path under the exec root (i.e. "bazel-out"). */
-  static PathFragment outputBase(Artifact anyGeneratedArtifact) {
-    return anyGeneratedArtifact.getExecPath().subFragment(0, 1);
   }
 }

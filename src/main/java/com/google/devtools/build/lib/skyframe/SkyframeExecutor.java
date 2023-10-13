@@ -101,7 +101,6 @@ import com.google.devtools.build.lib.analysis.constraints.RuleContextConstraintS
 import com.google.devtools.build.lib.analysis.producers.ConfiguredTargetAndDataProducer;
 import com.google.devtools.build.lib.bazel.bzlmod.BzlmodRepoRuleValue;
 import com.google.devtools.build.lib.bazel.repository.RepositoryOptions;
-import com.google.devtools.build.lib.bugreport.BugReport;
 import com.google.devtools.build.lib.bugreport.BugReporter;
 import com.google.devtools.build.lib.buildtool.BuildRequestOptions;
 import com.google.devtools.build.lib.cmdline.Label;
@@ -110,7 +109,6 @@ import com.google.devtools.build.lib.cmdline.PackageIdentifier;
 import com.google.devtools.build.lib.cmdline.RepositoryMapping;
 import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.cmdline.TargetParsingException;
-import com.google.devtools.build.lib.collect.nestedset.ArtifactNestedSetKey;
 import com.google.devtools.build.lib.concurrent.ExecutorUtil;
 import com.google.devtools.build.lib.concurrent.NamedForkJoinPool;
 import com.google.devtools.build.lib.concurrent.QuiescingExecutor;
@@ -230,6 +228,7 @@ import com.google.devtools.build.skyframe.InMemoryNodeEntry;
 import com.google.devtools.build.skyframe.Injectable;
 import com.google.devtools.build.skyframe.MemoizingEvaluator;
 import com.google.devtools.build.skyframe.NodeEntry;
+import com.google.devtools.build.skyframe.NodeEntry.DirtyType;
 import com.google.devtools.build.skyframe.RecordingDifferencer;
 import com.google.devtools.build.skyframe.SkyFunction;
 import com.google.devtools.build.skyframe.SkyFunctionName;
@@ -638,7 +637,8 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
         new AspectFunction(
             new BuildViewProvider(),
             shouldStoreTransitivePackagesInLoadingAndAnalysis(),
-            this::getExistingPackage));
+            this::getExistingPackage,
+            new BaseTargetPrerequisitesSupplierImpl()));
     map.put(SkyFunctions.TOP_LEVEL_ASPECTS, new ToplevelStarlarkAspectFunction());
     map.put(
         SkyFunctions.BUILD_TOP_LEVEL_ASPECTS_DETAILS, new BuildTopLevelAspectsDetailsFunction());
@@ -655,7 +655,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     map.put(SkyFunctions.BASELINE_OPTIONS, new BaselineOptionsFunction());
     map.put(
         SkyFunctions.STARLARK_BUILD_SETTINGS_DETAILS, new StarlarkBuildSettingsDetailsFunction());
-    map.put(SkyFunctions.WORKSPACE_NAME, new WorkspaceNameFunction());
+    map.put(SkyFunctions.WORKSPACE_NAME, new WorkspaceNameFunction(ruleClassProvider));
     map.put(
         WorkspaceFileValue.WORKSPACE_FILE,
         new WorkspaceFileFunction(
@@ -714,7 +714,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     map.put(SkyFunctions.REGISTERED_TOOLCHAINS, new RegisteredToolchainsFunction());
     map.put(SkyFunctions.SINGLE_TOOLCHAIN_RESOLUTION, new SingleToolchainResolutionFunction());
     map.put(SkyFunctions.TOOLCHAIN_RESOLUTION, new ToolchainResolutionFunction());
-    map.put(SkyFunctions.REPOSITORY_MAPPING, new RepositoryMappingFunction());
+    map.put(SkyFunctions.REPOSITORY_MAPPING, new RepositoryMappingFunction(ruleClassProvider));
     map.put(SkyFunctions.RESOLVED_FILE, new ResolvedFileFunction());
     map.put(
         SkyFunctions.PLATFORM_MAPPING,
@@ -1023,11 +1023,6 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
         : GlobbingStrategy.NON_SKYFRAME;
   }
 
-  @ForOverride
-  protected boolean shouldDeleteActionNodesWhenDroppingAnalysis() {
-    return true;
-  }
-
   /**
    * If not null, this is the only source root in the build, corresponding to the single element in
    * a single-element package path. Such a single-source-root build need not plant the execroot
@@ -1200,28 +1195,6 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
       ImmutableSet<ConfiguredTarget> topLevelTargets, ImmutableSet<AspectKey> topLevelAspects);
 
   protected abstract void dropConfiguredTargetsNow(final ExtendedEventHandler eventHandler);
-
-  protected final void deleteAnalysisNodes() {
-    memoizingEvaluator.delete(
-        shouldDeleteActionNodesWhenDroppingAnalysis()
-            ? SkyframeExecutor::analysisInvalidatingPredicateWithActions
-            : SkyframeExecutor::analysisInvalidatingPredicate);
-  }
-
-  // We delete any value that can hold an action -- all subclasses of ActionLookupKey.
-  // Also remove ArtifactNestedSetValues to prevent memory leak (b/143940221).
-  // Also BuildConfigurationKey to prevent memory leak (b/191875929).
-  private static boolean analysisInvalidatingPredicate(SkyKey key) {
-    return key instanceof ArtifactNestedSetKey
-        || key instanceof ActionLookupKey
-        || key instanceof BuildConfigurationKey;
-  }
-
-  // Also remove ActionLookupData since all such nodes depend on ActionLookupKey nodes and deleting
-  // en masse is cheaper than deleting via graph traversal (b/192863968).
-  private static boolean analysisInvalidatingPredicateWithActions(SkyKey key) {
-    return analysisInvalidatingPredicate(key) || key instanceof ActionLookupData;
-  }
 
   private WorkspaceStatusAction makeWorkspaceStatusAction(String workspaceName) {
     WorkspaceStatusAction.Environment env =
@@ -1726,6 +1699,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     return (BuildConfigurationValue)
         evaluateSkyKeys(eventHandler, ImmutableList.of(configurationKey)).get(configurationKey);
   }
+
   /**
    * Returns the configurations corresponding to the given sets of build options. Output order is
    * the same as input order.
@@ -1737,14 +1711,12 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
       ExtendedEventHandler eventHandler, BuildOptions buildOptions, boolean keepGoing)
       throws InvalidConfigurationException {
     // Prepare the Skyframe inputs.
-
-    PlatformMappingValue platformMappingValue = getPlatformMappingValue(eventHandler, buildOptions);
-
-    SkyKey configSkyKey = toConfigurationKey(platformMappingValue, buildOptions);
+    BuildConfigurationKey buildConfigurationKey =
+        createBuildConfigurationKey(eventHandler, buildOptions);
 
     // Skyframe-evaluate the configurations and throw errors if any.
     EvaluationResult<SkyValue> evalResult =
-        evaluateSkyKeys(eventHandler, ImmutableList.of(configSkyKey), keepGoing);
+        evaluateSkyKeys(eventHandler, ImmutableList.of(buildConfigurationKey), keepGoing);
     if (evalResult.hasError()) {
       Map.Entry<SkyKey, ErrorInfo> firstError = Iterables.get(evalResult.errorMap().entrySet(), 0);
       ErrorInfo error = firstError.getValue();
@@ -1765,7 +1737,7 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     }
 
     // Prepare and return the results.
-    return (BuildConfigurationValue) evalResult.get(configSkyKey);
+    return (BuildConfigurationValue) evalResult.get(buildConfigurationKey);
   }
 
   public Map<BuildConfigurationKey, BuildConfigurationValue> getConfigurations(
@@ -1784,13 +1756,16 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
         .collect(toImmutableList());
   }
 
-  private PlatformMappingValue getPlatformMappingValue(
-      ExtendedEventHandler eventHandler, BuildOptions referenceBuildOptions)
+  private BuildConfigurationKey createBuildConfigurationKey(
+      ExtendedEventHandler eventHandler, BuildOptions buildOptions)
       throws InvalidConfigurationException {
+    // Logic here must be kept in sync with BuildConfigurationKeyProducer.
+
+    // Determine the platform mapping to use.
     PathFragment platformMappingPath =
-        referenceBuildOptions.hasNoConfig()
+        buildOptions.hasNoConfig()
             ? null
-            : referenceBuildOptions.get(PlatformOptions.class).platformMappings;
+            : buildOptions.get(PlatformOptions.class).platformMappings;
 
     PlatformMappingValue.Key platformMappingKey =
         PlatformMappingValue.Key.create(platformMappingPath);
@@ -1800,14 +1775,13 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
       throw new InvalidConfigurationException(
           Code.PLATFORM_MAPPING_EVALUATION_FAILURE, evaluationResult.getError().getException());
     }
-    return (PlatformMappingValue) evaluationResult.get(platformMappingKey);
-  }
+    PlatformMappingValue platformMappingValue =
+        (PlatformMappingValue) evaluationResult.get(platformMappingKey);
 
-  private static BuildConfigurationKey toConfigurationKey(
-      PlatformMappingValue platformMappingValue, BuildOptions toOption)
-      throws InvalidConfigurationException {
+    // Create the build configuration key.
     try {
-      return BuildConfigurationKey.withPlatformMapping(platformMappingValue, toOption);
+      BuildOptions mappedOptions = platformMappingValue.map(buildOptions);
+      return BuildConfigurationKey.create(mappedOptions);
     } catch (OptionsParsingException e) {
       throw new InvalidConfigurationException(Code.INVALID_BUILD_OPTIONS, e);
     }
@@ -2806,11 +2780,19 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
     private Map<GlobDescriptor, ImmutableList<GlobDescriptor>> globDeps = new ConcurrentHashMap<>();
 
     @Override
-    public void invalidated(SkyKey skyKey, InvalidationState state) {
+    public void dirtied(SkyKey skyKey, DirtyType dirtyType) {
       if (ignoreInvalidations) {
         return;
       }
-      skyframeBuildView.getProgressReceiver().invalidated(skyKey, state);
+      skyframeBuildView.getProgressReceiver().dirtied(skyKey, dirtyType);
+    }
+
+    @Override
+    public void deleted(SkyKey skyKey) {
+      if (ignoreInvalidations) {
+        return;
+      }
+      skyframeBuildView.getProgressReceiver().deleted(skyKey);
     }
 
     @Override
@@ -3689,17 +3671,16 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
   @VisibleForTesting
   public BuildConfigurationValue getConfigurationForTesting(
       ExtendedEventHandler eventHandler, BuildOptions options)
-      throws InterruptedException, OptionsParsingException, InvalidConfigurationException {
-    SkyKey key =
-        BuildConfigurationKey.withPlatformMapping(
-            getPlatformMappingValue(eventHandler, options), options);
+      throws InterruptedException, InvalidConfigurationException {
+    BuildConfigurationKey buildConfigurationKey =
+        createBuildConfigurationKey(eventHandler, options);
     return (BuildConfigurationValue)
         evaluate(
-                ImmutableList.of(key),
+                ImmutableList.of(buildConfigurationKey),
                 /* keepGoing= */ false,
                 /* numThreads= */ DEFAULT_THREAD_COUNT,
                 eventHandler)
-            .get(key);
+            .get(buildConfigurationKey);
   }
 
   /** Returns a particular configured target. */
@@ -3753,7 +3734,8 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
                   /* transitionKeys= */ ImmutableList.of(),
                   TransitiveDependencyState.createForTesting(),
                   sink,
-                  /* outputIndex= */ 0),
+                  /* outputIndex= */ 0,
+                  /* baseTargetPrerequisitesSupplier= */ null),
               memoizingEvaluator,
               getEvaluationContextForTesting(eventHandler));
     }
@@ -3780,5 +3762,22 @@ public abstract class SkyframeExecutor implements WalkableGraphFactory {
         .setParallelism(DEFAULT_THREAD_COUNT)
         .setEventHandler(eventHandler)
         .build();
+  }
+
+  private final class BaseTargetPrerequisitesSupplierImpl
+      implements BaseTargetPrerequisitesSupplier {
+    @Override
+    @Nullable
+    public ConfiguredTargetValue getPrerequisite(ConfiguredTargetKey key)
+        throws InterruptedException {
+      return (ConfiguredTargetValue) memoizingEvaluator.getExistingValue(key);
+    }
+
+    @Override
+    @Nullable
+    public BuildConfigurationValue getPrerequisiteConfiguration(BuildConfigurationKey key)
+        throws InterruptedException {
+      return (BuildConfigurationValue) memoizingEvaluator.getExistingValue(key);
+    }
   }
 }

@@ -114,7 +114,7 @@ abstract class AbstractParallelEvaluator {
       EventFilter storedEventFilter,
       ErrorInfoManager errorInfoManager,
       boolean keepGoing,
-      DirtyTrackingProgressReceiver progressReceiver,
+      InflightTrackingProgressReceiver progressReceiver,
       GraphInconsistencyReceiver graphInconsistencyReceiver,
       QuiescingExecutor executor,
       CycleDetector cycleDetector,
@@ -897,9 +897,7 @@ abstract class AbstractParallelEvaluator {
                 key);
 
         if (childEntry.markDirty(DirtyType.REWIND) != null) {
-          evaluatorContext
-              .getProgressReceiver()
-              .invalidated(childToRestart, EvaluationProgressReceiver.InvalidationState.DIRTY);
+          evaluatorContext.getProgressReceiver().dirtied(childToRestart, DirtyType.REWIND);
         }
       }
     }

@@ -137,7 +137,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testBazelInvalidCompatibility() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0dd'])");
 
@@ -151,7 +151,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testSimpleBazelCompatibilityFailure() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0', '<5.1.4'])");
 
@@ -168,7 +168,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testBazelCompatibilityWarning() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0', '<5.1.4'])");
 
@@ -186,7 +186,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testDisablingBazelCompatibility() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0', '<5.1.4'])");
 
@@ -229,7 +229,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testRcIsCompatibleWithReleaseRequirement() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>=6.4.0'])");
 
@@ -242,7 +242,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testPrereleaseIsNotCompatibleWithReleaseRequirement() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>=6.4.0'])");
 
@@ -278,7 +278,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
        -not including- 5.1.2 and 5.1.4.
        Ex: 5.1.3rc44, 5.1.3, 5.1.4-pre22.44
     */
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0', bazel_compatibility=['>5.1.0', '<5.1.6'])",
         "bazel_dep(name = 'a', version = '1.0')");
@@ -342,7 +342,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
   }
 
   private void setupModulesForYankedVersion() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0')",
         "bazel_dep(name = 'a', version = '1.0')");
@@ -361,7 +361,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testYankedVersionSideEffects_equalCompatibilityLevel() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0')",
         "bazel_dep(name = 'a', version = '1.0')",
@@ -403,7 +403,7 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
 
   @Test
   public void testYankedVersionSideEffects_differentCompatibilityLevel() throws Exception {
-    scratch.file(
+    scratch.overwriteFile(
         rootDirectory.getRelative("MODULE.bazel").getPathString(),
         "module(name='mod', version='1.0')",
         "bazel_dep(name = 'a', version = '1.0')",
@@ -439,5 +439,41 @@ public class BazelModuleResolutionFunctionTest extends FoundationTestCase {
             "a@1.0 depends on b@1.0 with compatibility level 2, but <root> depends on b@1.1 with"
                 + " compatibility level 3 which is different");
     assertDoesNotContainEvent("hello from yanked version");
+  }
+
+  @Test
+  public void overrideOnNonexistentModule() throws Exception {
+    scratch.overwriteFile(
+        rootDirectory.getRelative("MODULE.bazel").getPathString(),
+        "module(name='mod', version='1.0')",
+        "bazel_dep(name = 'a', version = '1.0')",
+        "bazel_dep(name = 'b', version = '1.1')",
+        "local_path_override(module_name='d', path='whatevs')");
+
+    FakeRegistry registry =
+        registryFactory
+            .newFakeRegistry("/bar")
+            .addModule(
+                createModuleKey("a", "1.0"),
+                "module(name='a', version='1.0')",
+                "bazel_dep(name='b', version='1.0')")
+            .addModule(createModuleKey("c", "1.0"), "module(name='c', version='1.0')")
+            .addModule(createModuleKey("c", "1.1"), "module(name='c', version='1.1')")
+            .addModule(
+                createModuleKey("b", "1.0"),
+                "module(name='b', version='1.0')",
+                "bazel_dep(name='c', version='1.1')")
+            .addModule(
+                createModuleKey("b", "1.1"),
+                "module(name='b', version='1.1')",
+                "bazel_dep(name='c', version='1.0')");
+
+    ModuleFileFunction.REGISTRIES.set(differencer, ImmutableList.of(registry.getUrl()));
+    EvaluationResult<BazelModuleResolutionValue> result =
+        evaluator.evaluate(ImmutableList.of(BazelModuleResolutionValue.KEY), evaluationContext);
+
+    assertThat(result.hasError()).isTrue();
+    assertThat(result.getError().toString())
+        .contains("the root module specifies overrides on nonexistent module(s): d");
   }
 }

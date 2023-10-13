@@ -2061,7 +2061,7 @@ public class CcLibraryConfiguredTargetTest extends BuildViewTestCase {
   }
 
   @Test
-  public void testImplementationDepsFailsWithoutFlag() throws Exception {
+  public void testImplementationDepsSucceedsWithoutFlag() throws Exception {
     if (!analysisMock.isThisBazel()) {
       return;
     }
@@ -2077,9 +2077,9 @@ public class CcLibraryConfiguredTargetTest extends BuildViewTestCase {
         "    srcs = ['implementation_dep.cc'],",
         "    hdrs = ['implementation_dep.h'],",
         ")");
-    reporter.removeHandler(failFastHandler);
-    getConfiguredTarget("//foo:lib");
-    assertContainsEvent("requires --experimental_cc_implementation_deps");
+    assertThat(getConfiguredTarget("//foo:lib")).isNotNull();
+    ;
+    assertDoesNotContainEvent("requires --experimental_cc_implementation_deps");
   }
 
   @Test
@@ -2196,7 +2196,7 @@ public class CcLibraryConfiguredTargetTest extends BuildViewTestCase {
             "-Xlinker",
             "-rpath",
             "-Xlinker",
-            "$ORIGIN/main.runfiles/" + TestConstants.WORKSPACE_NAME + "/_solib_k8/")
+            "$ORIGIN/main.runfiles/" + ruleClassProvider.getRunfilesPrefix() + "/_solib_k8/")
         .inOrder();
     assertThat(linkArgv)
         .contains("-L" + TestConstants.PRODUCT_NAME + "-out/k8-fastbuild/bin/_solib_k8");
@@ -2267,7 +2267,7 @@ public class CcLibraryConfiguredTargetTest extends BuildViewTestCase {
             "-Xlinker",
             "-rpath",
             "-Xlinker",
-            "$ORIGIN/main.runfiles/" + TestConstants.WORKSPACE_NAME + "/_solib_k8/")
+            "$ORIGIN/main.runfiles/" + ruleClassProvider.getRunfilesPrefix() + "/_solib_k8/")
         .inOrder();
     assertThat(Joiner.on(" ").join(linkArgv))
         .contains("-Xlinker -rpath -Xlinker $ORIGIN/../../../k8-fastbuild-ST-");

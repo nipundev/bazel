@@ -259,7 +259,7 @@ public class JavaCommon {
 
   /** Computes javacopts for the current rule. */
   private ImmutableList<String> computeJavacOpts(Collection<String> extraRuleJavacOpts)
-      throws InterruptedException {
+      throws InterruptedException, RuleErrorException {
     ImmutableList.Builder<String> javacOpts =
         ImmutableList.<String>builder()
             .addAll(javaToolchain.getJavacOptionsAsList(ruleContext))
@@ -284,7 +284,7 @@ public class JavaCommon {
 
   /** Returns the per-package configured javacopts. */
   public static ImmutableList<String> computePerPackageJavacOpts(
-      RuleContext ruleContext, JavaToolchainProvider toolchain) {
+      RuleContext ruleContext, JavaToolchainProvider toolchain) throws RuleErrorException {
     // Do not use streams here as they create excessive garbage.
     ImmutableList.Builder<String> result = ImmutableList.builder();
     for (JavaPackageConfigurationProvider provider : toolchain.packageConfiguration()) {
@@ -297,7 +297,7 @@ public class JavaCommon {
 
   /** Returns the per-package configured runfiles. */
   public static NestedSet<Artifact> computePerPackageData(
-      RuleContext ruleContext, JavaToolchainProvider toolchain) {
+      RuleContext ruleContext, JavaToolchainProvider toolchain) throws RuleErrorException {
     // Do not use streams here as they create excessive garbage.
     NestedSetBuilder<Artifact> data = NestedSetBuilder.naiveLinkOrder();
     for (JavaPackageConfigurationProvider provider : toolchain.packageConfiguration()) {
@@ -308,16 +308,18 @@ public class JavaCommon {
     return data.build();
   }
 
-  public static PathFragment getHostJavaExecutable(RuleContext ruleContext) {
+  public static PathFragment getHostJavaExecutable(RuleContext ruleContext)
+      throws RuleErrorException {
     return JavaRuntimeInfo.forHost(ruleContext).javaBinaryExecPathFragment();
   }
 
-  public static PathFragment getHostJavaExecutable(JavaRuntimeInfo javaRuntime) {
+  public static PathFragment getHostJavaExecutable(JavaRuntimeInfo javaRuntime)
+      throws RuleErrorException {
     return javaRuntime.javaBinaryExecPathFragment();
   }
 
   public static PathFragment getJavaExecutable(
-      RuleContext ruleContext, Label javaRuntimeToolchainType) {
+      RuleContext ruleContext, Label javaRuntimeToolchainType) throws RuleErrorException {
     return JavaRuntimeInfo.from(ruleContext, javaRuntimeToolchainType).javaBinaryExecPathFragment();
   }
 
@@ -326,7 +328,8 @@ public class JavaCommon {
    *
    * @param launcher if non-null, the cc_binary used to launch the Java Virtual Machine
    */
-  public String getJavaExecutableForStub(RuleContext ruleContext, @Nullable Artifact launcher) {
+  public String getJavaExecutableForStub(RuleContext ruleContext, @Nullable Artifact launcher)
+      throws RuleErrorException {
     Preconditions.checkState(ruleContext.getConfiguration().hasFragment(JavaConfiguration.class));
     PathFragment javaExecutable;
     JavaRuntimeInfo javaRuntime =
@@ -364,7 +367,8 @@ public class JavaCommon {
   }
 
   /** Returns the string that the stub should use to determine the JVM binary (java) path */
-  public String getJavaBinSubstitution(RuleContext ruleContext, @Nullable Artifact launcher) {
+  public String getJavaBinSubstitution(RuleContext ruleContext, @Nullable Artifact launcher)
+      throws RuleErrorException {
     return getJavaBinSubstitutionFromJavaExecutable(
         ruleContext, getJavaExecutableForStub(ruleContext, launcher));
   }

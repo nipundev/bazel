@@ -214,7 +214,6 @@ public final class MockProtoSupport {
           ")");
     }
 
-    config.create("third_party/bazel_rules/rules_proto/WORKSPACE");
     config.create(
         "third_party/bazel_rules/rules_proto/proto/BUILD",
         "licenses(['notice'])",
@@ -263,6 +262,7 @@ public final class MockProtoSupport {
         "        progress_message = ctx.attr.progress_message,",
         "        mnemonic = ctx.attr.mnemonic,",
         "        allowlist_different_package = None,",
+        "        toolchain_type = '//third_party/bazel_rules/rules_proto/proto:toolchain_type'",
         "      ),",
         "    ),",
         "  ]",
@@ -288,7 +288,7 @@ public final class MockProtoSupport {
         "third_party/bazel_rules/rules_proto/proto/proto_lang_toolchain.bzl",
         "def proto_lang_toolchain(*, name, toolchain_type = None, exec_compatible_with = [],",
         "         target_compatible_with = [], **attrs):",
-        "  native.proto_lang_toolchain(name = name, **attrs)",
+        "  native.proto_lang_toolchain(name = name, toolchain_type = toolchain_type, **attrs)",
         "  if toolchain_type:",
         "    native.toolchain(",
         "      name = name + '_toolchain',",

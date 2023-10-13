@@ -714,14 +714,6 @@ sh_test(
 )
 
 sh_test(
-    name = "sandboxfs_test",
-    size = "medium",
-    srcs = ["sandboxfs_test.sh"],
-    data = [":test-deps"],
-    tags = ["no_windows"],
-)
-
-sh_test(
     name = "bazel_java_test",
     size = "medium",
     srcs = ["bazel_java_test.sh"],
@@ -874,6 +866,23 @@ sh_test(
         ":test-deps",
         "@bazel_tools//tools/bash/runfiles",
     ],
+)
+
+sh_test(
+    name = "config_stripped_outputs_test",
+    size = "medium",
+    srcs = ["config_stripped_outputs_test.sh"],
+    data = [
+        ":config_stripped_outputs_lib",
+        ":test-deps",
+        "@bazel_tools//tools/bash/runfiles",
+    ],
+)
+
+sh_library(
+    name = "config_stripped_outputs_lib",
+    testonly = 1,
+    srcs = ["config_stripped_outputs_lib.sh"],
 )
 
 ########################################################################

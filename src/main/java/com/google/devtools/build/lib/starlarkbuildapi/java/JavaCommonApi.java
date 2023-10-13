@@ -35,7 +35,6 @@ import net.starlark.java.annot.StarlarkMethod;
 import net.starlark.java.eval.EvalException;
 import net.starlark.java.eval.NoneType;
 import net.starlark.java.eval.Sequence;
-import net.starlark.java.eval.StarlarkSemantics;
 import net.starlark.java.eval.StarlarkThread;
 import net.starlark.java.eval.StarlarkValue;
 
@@ -47,8 +46,6 @@ import net.starlark.java.eval.StarlarkValue;
 public interface JavaCommonApi<
         FileT extends FileApi,
         JavaInfoT extends JavaInfoApi<FileT, ?, ?>,
-        JavaToolchainT extends JavaToolchainStarlarkApiProviderApi,
-        BootClassPathT extends ProviderApi,
         ConstraintValueT extends ConstraintValueInfoApi,
         StarlarkRuleContextT extends StarlarkRuleContextApi<ConstraintValueT>,
         StarlarkActionFactoryT extends StarlarkActionFactoryApi>
@@ -141,7 +138,7 @@ public interface JavaCommonApi<
       Object outputSourceJar,
       Sequence<?> sourceFiles, // <FileT> expected.
       Sequence<?> sourceJars, // <FileT> expected.
-      JavaToolchainT javaToolchain,
+      Info javaToolchain,
       Object hostJavabase)
       throws EvalException {
     throw new UnsupportedOperationException();
@@ -179,7 +176,7 @@ public interface JavaCommonApi<
             doc = "A JavaToolchainInfo to used to find the stamp_jar tool."),
       })
   default FileApi stampJar(
-      StarlarkActionFactoryT actions, FileT jar, Label targetLabel, JavaToolchainT javaToolchain)
+      StarlarkActionFactoryT actions, FileT jar, Label targetLabel, Info javaToolchain)
       throws EvalException {
     throw new UnsupportedOperationException();
   }
@@ -215,7 +212,7 @@ public interface JavaCommonApi<
             doc = "A JavaToolchainInfo to used to find the ijar tool."),
       })
   default FileApi runIjar(
-      StarlarkActionFactoryT actions, FileT jar, Object targetLabel, JavaToolchainT javaToolchain)
+      StarlarkActionFactoryT actions, FileT jar, Object targetLabel, Info javaToolchain)
       throws EvalException {
     throw new UnsupportedOperationException();
   }
@@ -464,7 +461,7 @@ public interface JavaCommonApi<
       Sequence<?> annotationProcessorAdditionalInputs, // <FileT> expected.
       Sequence<?> annotationProcessorAdditionalOutputs, // <FileT> expected.
       String strictDepsMode,
-      JavaToolchainT javaToolchain,
+      Info javaToolchain,
       Object bootClassPath,
       Object hostJavabase,
       Sequence<?> sourcepathEntries, // <FileT> expected.
@@ -510,7 +507,7 @@ public interface JavaCommonApi<
       })
   void createHeaderCompilationAction(
       StarlarkRuleContextT ctx,
-      JavaToolchainT javaToolchain,
+      Info javaToolchain,
       FileT compileJar,
       FileT compileDepsProto,
       Info pluginInfo,
@@ -562,7 +559,7 @@ public interface JavaCommonApi<
       })
   void createCompilationAction(
       StarlarkRuleContextT ctx,
-      JavaToolchainT javaToolchain,
+      Info javaToolchain,
       FileT output,
       FileT manifestProto,
       Info pluginInfo,
@@ -599,7 +596,6 @@ public interface JavaCommonApi<
             name = "java_toolchain",
             positional = false,
             named = true,
-            allowedTypes = {@ParamType(type = JavaToolchainStarlarkApiProviderApi.class)},
             doc =
                 "A JavaToolchainInfo to be used for retrieving the ijar "
                     + "tool. Only set when use_ijar is True."),
@@ -612,8 +608,8 @@ public interface JavaCommonApi<
       })
   // TODO(b/78512644): migrate callers to passing explicit javacopts or using custom toolchains, and
   // delete
-  StarlarkValue getDefaultJavacOpts(JavaToolchainT javaToolchain, boolean asDepset)
-      throws EvalException;
+  StarlarkValue getDefaultJavacOpts(Info javaToolchain, boolean asDepset)
+      throws EvalException, RuleErrorException;
 
   @StarlarkMethod(
       name = "JavaToolchainInfo",
@@ -655,15 +651,6 @@ public interface JavaCommonApi<
   Sequence<FileT> getBuildInfo(
       StarlarkRuleContextT ruleContext, boolean isStampingEnabled, StarlarkThread thread)
       throws EvalException, InterruptedException;
-
-  @StarlarkMethod(
-      name = "experimental_java_proto_library_default_has_services",
-      documented = false,
-      useStarlarkSemantics = true,
-      structField = true,
-      doc = "Default value of java_proto_library.has_services")
-  boolean getExperimentalJavaProtoLibraryDefaultHasServices(StarlarkSemantics starlarkSemantics)
-      throws EvalException;
 
   @StarlarkMethod(
       name = "collect_native_deps_dirs",
@@ -732,4 +719,7 @@ public interface JavaCommonApi<
       useStarlarkThread = true,
       documented = false)
   boolean incompatibleDisableNonExecutableJavaBinary(StarlarkThread thread);
+
+  @StarlarkMethod(name = "current_os_name", structField = true, documented = false)
+  String getCurrentOsName();
 }

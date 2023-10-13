@@ -715,7 +715,7 @@ public class CcCommonTest extends BuildViewTestCase {
         "badlib",
         "lib_with_dash_static",
         // message:
-        "in linkopts attribute of cc_library rule @//badlib:lib_with_dash_static: "
+        "in linkopts attribute of cc_library rule @@//badlib:lib_with_dash_static: "
             + "Apple builds do not support statically linked binaries",
         // build file:
         "cc_library(name = 'lib_with_dash_static',",
@@ -920,6 +920,21 @@ public class CcCommonTest extends BuildViewTestCase {
     assertThat(ActionsTestUtil.prettyArtifactNames(absolute.getDeclaredIncludeSrcs()))
         .containsExactly(
             "third_party/a/_virtual_includes/absolute/a/v1/b.h", "third_party/a/v1/b.h");
+  }
+
+  @Test
+  public void testEmptyPackageStripPrefix() throws Exception {
+    if (!AnalysisMock.get().isThisBazel()) {
+      return;
+    }
+    scratch.file(
+        "BUILD",
+        "licenses(['notice'])",
+        "cc_library(name='a', hdrs=['b.h'], strip_include_prefix='.')");
+    CcCompilationContext ccContext =
+        getConfiguredTarget("//:a").get(CcInfo.PROVIDER).getCcCompilationContext();
+    assertThat(ActionsTestUtil.prettyArtifactNames(ccContext.getDeclaredIncludeSrcs()))
+        .containsExactly("b.h");
   }
 
   @Test

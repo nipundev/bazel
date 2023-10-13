@@ -42,6 +42,7 @@ import com.google.devtools.build.lib.analysis.TemplateVariableInfo;
 import com.google.devtools.build.lib.analysis.config.ExecutionTransitionFactory;
 import com.google.devtools.build.lib.analysis.config.StarlarkDefinedConfigTransition;
 import com.google.devtools.build.lib.analysis.config.ToolchainTypeRequirement;
+import com.google.devtools.build.lib.analysis.config.transitions.NoTransition;
 import com.google.devtools.build.lib.analysis.config.transitions.PatchTransition;
 import com.google.devtools.build.lib.analysis.config.transitions.StarlarkExposedRuleTransitionFactory;
 import com.google.devtools.build.lib.analysis.config.transitions.TransitionFactory;
@@ -56,9 +57,9 @@ import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.packages.AllowlistChecker;
-import com.google.devtools.build.lib.packages.AspectsListBuilder.AspectDetails;
 import com.google.devtools.build.lib.packages.Attribute;
 import com.google.devtools.build.lib.packages.Attribute.StarlarkComputedDefaultTemplate;
+import com.google.devtools.build.lib.packages.AttributeTransitionData;
 import com.google.devtools.build.lib.packages.AttributeValueSource;
 import com.google.devtools.build.lib.packages.BazelStarlarkContext;
 import com.google.devtools.build.lib.packages.BuildSetting;
@@ -751,7 +752,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       Boolean applyToGeneratingRules,
       Sequence<?> rawExecCompatibleWith,
       Object rawExecGroups,
-      Sequence<?> subrules,
+      Sequence<?> subrulesUnchecked,
       StarlarkThread thread)
       throws EvalException {
     LabelConverter labelConverter = LabelConverter.forBzlEvaluatingThread(thread);
@@ -776,6 +777,22 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
 
     ImmutableList<Pair<String, StarlarkAttrModule.Descriptor>> descriptors =
         attrObjectToAttributesList(attrs);
+
+    if (!subrulesUnchecked.isEmpty()) {
+      BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_SUBRULES);
+    }
+    ImmutableList<StarlarkSubrule> subrules =
+        Sequence.cast(subrulesUnchecked, StarlarkSubrule.class, "subrules").getImmutableList();
+    ImmutableList<Pair<String, Descriptor>> subruleAttributes =
+        StarlarkSubrule.discoverAttributesForRule(subrules);
+    if (!subruleAttributes.isEmpty()) {
+      descriptors =
+          ImmutableList.<Pair<String, Descriptor>>builder()
+              .addAll(descriptors)
+              .addAll(subruleAttributes)
+              .build();
+    }
+
     ImmutableList.Builder<Attribute> attributes = ImmutableList.builder();
     ImmutableSet.Builder<String> requiredParams = ImmutableSet.builder();
     for (Pair<String, Descriptor> nameDescriptorPair : descriptors) {
@@ -871,10 +888,6 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
       }
     }
 
-    if (!subrules.isEmpty()) {
-      BuiltinRestriction.failIfCalledOutsideAllowlist(thread, ALLOWLIST_SUBRULES);
-    }
-
     return new StarlarkDefinedAspect(
         implementation,
         Starlark.toJavaOptional(doc, String.class).map(Starlark::trimDocString),
@@ -891,7 +904,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
         applyToGeneratingRules,
         execCompatibleWith,
         execGroups,
-        ImmutableSet.copyOf(Sequence.cast(subrules, StarlarkSubruleApi.class, "subrules")));
+        ImmutableSet.copyOf(subrules));
   }
 
   /**
@@ -1023,33 +1036,7 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
 
     private static void validateRulePropagatedAspects(RuleClass ruleClass) throws EvalException {
       for (Attribute attribute : ruleClass.getAttributes()) {
-        for (AspectDetails<?> aspect : attribute.getAspectsDetails()) {
-          ImmutableSet<String> requiredAspectParameters = aspect.getRequiredParameters();
-          for (Attribute aspectAttribute : aspect.getAspectAttributes()) {
-            String aspectAttrName = aspectAttribute.getPublicName();
-            Type<?> aspectAttrType = aspectAttribute.getType();
-
-            // When propagated from a rule, explicit aspect attributes must be of type boolean, int
-            // or string. Integer and string attributes must have the `values` restriction.
-            if (!aspectAttribute.isImplicit() && !aspectAttribute.isLateBound()) {
-              if (aspectAttrType != Type.BOOLEAN && !aspectAttribute.checkAllowedValues()) {
-                throw Starlark.errorf(
-                    "Aspect %s: Aspect parameter attribute '%s' must use the 'values' restriction.",
-                    aspect.getName(), aspectAttrName);
-              }
-            }
-
-            // Required aspect parameters must be specified by the rule propagating the aspect with
-            // the same parameter type.
-            if (requiredAspectParameters.contains(aspectAttrName)) {
-              if (!ruleClass.hasAttr(aspectAttrName, aspectAttrType)) {
-                throw Starlark.errorf(
-                    "Aspect %s requires rule %s to specify attribute '%s' with type %s.",
-                    aspect.getName(), ruleClass.getName(), aspectAttrName, aspectAttrType);
-              }
-            }
-          }
-        }
+        attribute.validateRulePropagatedAspectsParameters(ruleClass);
       }
     }
 
@@ -1187,10 +1174,14 @@ public class StarlarkRuleClassFunctions implements StarlarkRuleFunctionsApi {
     ImmutableMap<String, Descriptor> attrs =
         ImmutableMap.copyOf(Dict.cast(attrsUnchecked, String.class, Descriptor.class, "attrs"));
     for (Entry<String, Descriptor> attr : attrs.entrySet()) {
-      // TODO: b/293304174 - add support for late bound defaults (will require declaring fragments)
-      // TODO: b/293304174 - do not permit split transitions?
       String attrName = attr.getKey();
       Descriptor descriptor = attr.getValue();
+      TransitionFactory<AttributeTransitionData> transitionFactory =
+          descriptor.getTransitionFactory();
+      if (!NoTransition.isInstance(transitionFactory) && !transitionFactory.isTool()) {
+        throw Starlark.errorf(
+            "bad cfg for attribute '%s': subrules may only have target/exec attributes.", attrName);
+      }
       checkAttributeName(attrName);
       Type<?> type = descriptor.getType();
       if (!attrName.startsWith("_")) {

@@ -37,6 +37,7 @@ import com.google.devtools.build.lib.analysis.TransitiveInfoCollection;
 import com.google.devtools.build.lib.analysis.actions.CustomCommandLine;
 import com.google.devtools.build.lib.analysis.actions.SpawnAction;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue;
+import com.google.devtools.build.lib.analysis.config.CoreOptions.OutputPathsMode;
 import com.google.devtools.build.lib.collect.nestedset.NestedSet;
 import com.google.devtools.build.lib.collect.nestedset.NestedSetBuilder;
 import com.google.devtools.build.lib.packages.RuleClass.ConfiguredTargetFactory.RuleErrorException;
@@ -386,7 +387,8 @@ public final class AndroidBinaryMobileInstall {
       Artifact resourceApk,
       Artifact apk,
       NativeLibs nativeLibs,
-      Artifact stubDataFile) {
+      Artifact stubDataFile)
+      throws RuleErrorException {
 
     FilesToRunProvider adb = AndroidSdkProvider.fromRuleContext(ruleContext).getAdb();
     SpawnAction.Builder builder =
@@ -436,7 +438,8 @@ public final class AndroidBinaryMobileInstall {
       Artifact argsArtifact,
       Artifact splitMainApk,
       NestedSet<Artifact> splitApks,
-      Artifact stubDataFile) {
+      Artifact stubDataFile)
+      throws RuleErrorException {
     FilesToRunProvider adb = AndroidSdkProvider.fromRuleContext(ruleContext).getAdb();
     SpawnAction.Builder builder =
         new InstallActionBuilder()
@@ -470,7 +473,7 @@ public final class AndroidBinaryMobileInstall {
       ProcessedAndroidManifest mainManifest,
       String splitName,
       boolean hasCode)
-      throws InterruptedException {
+      throws InterruptedException, RuleErrorException {
     Artifact splitManifest =
         mainManifest.createSplitManifest(ruleContext, splitName, hasCode).getManifest();
     Artifact splitResources = getMobileInstallArtifact(ruleContext, "split_" + splitName + ".ap_");
@@ -527,7 +530,7 @@ public final class AndroidBinaryMobileInstall {
           progressMessage,
           runfilesSupplier,
           mnemonic,
-          /* stripOutputPaths= */ false);
+          OutputPathsMode.OFF);
     }
 
     @Override

@@ -97,7 +97,7 @@ public final class JavaConfiguration extends Fragment implements JavaConfigurati
   private final Label proguardBinary;
   private final NamedLabel bytecodeOptimizer;
   private final boolean runLocalJavaOptimizations;
-  private final ImmutableList<Label> localJavaOptimizationConfiguration;
+  private final Label localJavaOptimizationConfiguration;
   private final boolean splitBytecodeOptimizationPass;
   private final int bytecodeOptimizationPassActions;
   private final boolean enforceProguardFileExtension;
@@ -133,8 +133,7 @@ public final class JavaConfiguration extends Fragment implements JavaConfigurati
     this.fixDepsTool = javaOptions.fixDepsTool;
     this.proguardBinary = javaOptions.proguard;
     this.runLocalJavaOptimizations = javaOptions.runLocalJavaOptimizations;
-    this.localJavaOptimizationConfiguration =
-        ImmutableList.copyOf(javaOptions.localJavaOptimizationConfiguration);
+    this.localJavaOptimizationConfiguration = javaOptions.localJavaOptimizationConfiguration;
     this.splitBytecodeOptimizationPass = javaOptions.splitBytecodeOptimizationPass;
     this.bytecodeOptimizationPassActions = javaOptions.bytecodeOptimizationPassActions;
     this.enforceProguardFileExtension = javaOptions.enforceProguardFileExtension;
@@ -398,9 +397,28 @@ public final class JavaConfiguration extends Fragment implements JavaConfigurati
     return runLocalJavaOptimizations;
   }
 
+  @StarlarkConfigurationField(
+      name = "java_toolchain_bytecode_optimizer",
+      documented = false,
+      defaultInToolRepository = true)
+  @Nullable
+  public Label getBytecodeOptimizerLabelForJavaToolchain() {
+    if (runLocalJavaOptimizations) {
+      return bytecodeOptimizer.label().orNull();
+    } else {
+      return null;
+    }
+  }
+
   /** Returns the optimization configuration for local Java optimizations if they are enabled. */
-  public ImmutableList<Label> getLocalJavaOptimizationConfiguration() {
-    return localJavaOptimizationConfiguration;
+  @StarlarkConfigurationField(name = "local_java_optimization_configuration", documented = false)
+  @Nullable
+  public Label getLocalJavaOptimizationConfiguration() {
+    if (runLocalJavaOptimizations) {
+      return localJavaOptimizationConfiguration;
+    } else {
+      return null;
+    }
   }
 
   /**

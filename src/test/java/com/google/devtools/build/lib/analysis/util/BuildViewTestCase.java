@@ -106,7 +106,14 @@ import com.google.devtools.build.lib.analysis.starlark.StarlarkTransition;
 import com.google.devtools.build.lib.analysis.starlark.StarlarkTransition.TransitionException;
 import com.google.devtools.build.lib.analysis.test.BaselineCoverageAction;
 import com.google.devtools.build.lib.analysis.test.InstrumentedFilesInfo;
+import com.google.devtools.build.lib.bazel.bzlmod.BazelLockFileFunction;
+import com.google.devtools.build.lib.bazel.bzlmod.BazelModuleResolutionFunction;
+import com.google.devtools.build.lib.bazel.bzlmod.FakeRegistry;
 import com.google.devtools.build.lib.bazel.bzlmod.ModuleFileFunction;
+import com.google.devtools.build.lib.bazel.bzlmod.YankedVersionsUtil;
+import com.google.devtools.build.lib.bazel.repository.RepositoryOptions.BazelCompatibilityMode;
+import com.google.devtools.build.lib.bazel.repository.RepositoryOptions.CheckDirectDepsMode;
+import com.google.devtools.build.lib.bazel.repository.RepositoryOptions.LockfileMode;
 import com.google.devtools.build.lib.buildtool.BuildRequestOptions;
 import com.google.devtools.build.lib.clock.BlazeClock;
 import com.google.devtools.build.lib.cmdline.Label;
@@ -205,6 +212,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import net.starlark.java.eval.StarlarkSemantics;
@@ -224,6 +232,9 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
   protected TimestampGranularityMonitor tsgm;
   protected BlazeDirectories directories;
   protected ActionKeyContext actionKeyContext;
+
+  protected Path moduleRoot;
+  protected FakeRegistry registry;
 
   // Note that these configurations are virtual (they use only VFS)
   protected BuildConfigurationValue targetConfig; // "target" or "build" config
@@ -272,6 +283,8 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
             rootDirectory,
             /* defaultSystemJavabase= */ null,
             analysisMock.getProductName());
+    moduleRoot = scratch.dir("modules");
+    registry = FakeRegistry.DEFAULT_FACTORY.newFakeRegistry(moduleRoot.getPathString());
 
     actionKeyContext = new ActionKeyContext();
     mockToolsConfig = new MockToolsConfig(rootDirectory, false);
@@ -286,9 +299,6 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
     getOutputPath().createDirectoryAndParents();
     ImmutableList<PrecomputedValue.Injected> extraPrecomputedValues =
         ImmutableList.<PrecomputedValue.Injected>builder()
-            .add(
-                PrecomputedValue.injected(
-                    PrecomputedValue.STARLARK_SEMANTICS, StarlarkSemantics.DEFAULT))
             .add(PrecomputedValue.injected(PrecomputedValue.REPO_ENV, ImmutableMap.of()))
             .add(PrecomputedValue.injected(ModuleFileFunction.MODULE_OVERRIDES, ImmutableMap.of()))
             .add(
@@ -306,6 +316,24 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
                 PrecomputedValue.injected(
                     BuildInfoCollectionFunction.BUILD_INFO_FACTORIES,
                     ruleClassProvider.getBuildInfoFactoriesAsMap()))
+            .add(
+                PrecomputedValue.injected(
+                    ModuleFileFunction.REGISTRIES, ImmutableList.of(registry.getUrl())))
+            .add(PrecomputedValue.injected(ModuleFileFunction.IGNORE_DEV_DEPS, false))
+            .add(PrecomputedValue.injected(ModuleFileFunction.MODULE_OVERRIDES, ImmutableMap.of()))
+            .add(
+                PrecomputedValue.injected(
+                    YankedVersionsUtil.ALLOWED_YANKED_VERSIONS, ImmutableList.of()))
+            .add(
+                PrecomputedValue.injected(
+                    BazelModuleResolutionFunction.CHECK_DIRECT_DEPENDENCIES,
+                    CheckDirectDepsMode.WARNING))
+            .add(
+                PrecomputedValue.injected(
+                    BazelModuleResolutionFunction.BAZEL_COMPATIBILITY_MODE,
+                    BazelCompatibilityMode.ERROR))
+            .add(
+                PrecomputedValue.injected(BazelLockFileFunction.LOCKFILE_MODE, LockfileMode.UPDATE))
             .addAll(extraPrecomputedValues())
             .build();
     PackageFactory.BuilderForTesting pkgFactoryBuilder =
@@ -556,6 +584,7 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
     if (!analysisMock.isThisBazel()) {
       parser.parse("--experimental_google_legacy_api"); // For starlark java_binary;
     }
+    parser.parse("--enable_bzlmod");
     parser.parse(options);
     return parser.getOptions(BuildLanguageOptions.class);
   }
@@ -1525,10 +1554,14 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
    * "foo.o".
    */
   protected final Artifact getBinArtifact(String packageRelativePath, ConfiguredTarget owner) {
-    return getPackageRelativeDerivedArtifact(
-        packageRelativePath,
-        getConfiguration(owner).getBinDirectory(RepositoryName.MAIN),
-        ConfiguredTargetKey.fromConfiguredTarget(owner));
+    try {
+      return getPackageRelativeDerivedArtifact(
+          packageRelativePath,
+          getRuleContext(owner).getBinDirectory(),
+          ConfiguredTargetKey.fromConfiguredTarget(owner));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   /**
@@ -1560,15 +1593,19 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
       ConfiguredTarget owner,
       AspectClass creatingAspectFactory,
       AspectParameters parameters) {
-    return getPackageRelativeDerivedArtifact(
-        packageRelativePath,
-        getConfiguration(owner).getBinDirectory(RepositoryName.MAIN),
-        AspectKeyCreator.createAspectKey(
-            AspectDescriptor.of(creatingAspectFactory, parameters),
-            ConfiguredTargetKey.builder()
-                .setLabel(owner.getLabel())
-                .setConfiguration(getConfiguration(owner))
-                .build()));
+    try {
+      return getPackageRelativeDerivedArtifact(
+          packageRelativePath,
+          getRuleContext(owner).getBinDirectory(),
+          AspectKeyCreator.createAspectKey(
+              AspectDescriptor.of(creatingAspectFactory, parameters),
+              ConfiguredTargetKey.builder()
+                  .setLabel(owner.getLabel())
+                  .setConfiguration(getConfiguration(owner))
+                  .build()));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   /**
@@ -1693,10 +1730,14 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
    * @param owner the artifact's owner.
    */
   protected Artifact getSharedArtifact(String rootRelativePath, ConfiguredTarget owner) {
-    return getDerivedArtifact(
-        PathFragment.create(rootRelativePath),
-        targetConfig.getBinDirectory(RepositoryName.MAIN),
-        ConfiguredTargetKey.fromConfiguredTarget(owner));
+    try {
+      return getDerivedArtifact(
+          PathFragment.create(rootRelativePath),
+          getRuleContext(owner).getBinDirectory(),
+          ConfiguredTargetKey.fromConfiguredTarget(owner));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   protected Action getGeneratingActionForLabel(String label) throws Exception {
@@ -1989,7 +2030,7 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
             transition.patch(
                 new BuildOptionsView(fromConfig.getOptions(), transition.requiresOptionFragments()),
                 eventCollector));
-      } catch (OptionsParsingException | InvalidConfigurationException e) {
+      } catch (InvalidConfigurationException e) {
         throw new AssertionError(e);
       }
     }
@@ -2463,8 +2504,31 @@ public abstract class BuildViewTestCase extends FoundationTestCase {
     return getBinArtifact(getImplicitOutputPath(target, outputFunction), target);
   }
 
+  static final Pattern WORKSPACE_NAME_PATTERN =
+      Pattern.compile(
+          "workspace\\(\\s*name\\s*=\\s*(?:'|\")(\\w+)(?:'|\")\\s*\\)", Pattern.MULTILINE);
+
+  private String findWorkspaceName() {
+    // HACK -- we have to somehow get the workspace name here. But running skyframe itself is too
+    // demanding (and who knows what might go wrong if we run skyframe mid-setup); so we fall back
+    // to just reading out the WORKSPACE file ourselves and doing a simple parse. This function
+    // crudely reproduces the logic of WorkspaceNameFunction.
+    if (buildLanguageOptions.enableBzlmod) {
+      return ruleClassProvider.getRunfilesPrefix();
+    }
+    try {
+      Matcher matcher = WORKSPACE_NAME_PATTERN.matcher(scratch.readFile("WORKSPACE"));
+      if (matcher.find()) {
+        return matcher.group(1);
+      }
+      return "__main__";
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   public Path getExecRoot() {
-    return directories.getExecRoot(ruleClassProvider.getRunfilesPrefix());
+    return directories.getExecRoot(findWorkspaceName());
   }
 
   /** Returns true iff commandLine contains the option --flagName followed by arg. */
