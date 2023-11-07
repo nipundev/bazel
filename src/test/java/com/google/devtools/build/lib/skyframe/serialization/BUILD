@@ -363,7 +363,7 @@ java_library(
     name = "serialization-tests",
     testonly = 1,
     srcs = glob(
-        ["**/*.java"],
+        ["*.java"],
         exclude = [
             "PackageLookupValueCodecTest.java",
             "MutableListCodecTest.java",
@@ -399,6 +399,7 @@ java_library(
         "//src/main/java/com/google/devtools/build/lib/events",
         "//src/main/java/com/google/devtools/build/lib/skyframe:precomputed_value",
         "//src/main/java/com/google/devtools/build/lib/skyframe/serialization",
+        "//src/main/java/com/google/devtools/build/lib/skyframe/serialization:visible-for-serialization",
         "//src/main/java/com/google/devtools/build/lib/skyframe/serialization/autocodec",
         "//src/main/java/com/google/devtools/build/lib/skyframe/serialization/autocodec:serialization-constant",
         "//src/main/java/com/google/devtools/build/lib/skyframe/serialization/testutils",

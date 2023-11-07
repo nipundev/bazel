@@ -14,7 +14,7 @@
 
 """Exported builtins symbols that are not specific to OSS Bazel."""
 
-load("@_builtins//:common/cc/cc_binary_wrapper.bzl", "cc_binary")
+load("@_builtins//:common/cc/cc_binary.bzl", "cc_binary")
 load("@_builtins//:common/cc/cc_common.bzl", "cc_common")
 load("@_builtins//:common/cc/cc_compilation_helper.bzl", "cc_compilation_helper")
 load("@_builtins//:common/cc/cc_helper.bzl", "cc_helper")
@@ -38,6 +38,7 @@ load("@_builtins//:common/proto/proto_lang_toolchain.bzl", "proto_lang_toolchain
 load("@_builtins//:common/proto/proto_library.bzl", "proto_library")
 load("@_builtins//:common/python/providers.bzl", "PyCcLinkParamsProvider", "PyInfo", "PyRuntimeInfo")
 load("@_builtins//:common/python/py_runtime_macro.bzl", "py_runtime")
+load(":common/java/java_binary_deploy_jar.bzl", get_java_build_info = "get_build_info")
 load(":common/java/java_common.bzl", "java_common")
 load(":common/java/java_info.bzl", "JavaInfo", "JavaPluginInfo")
 load(":common/java/java_package_configuration.bzl", "java_package_configuration")
@@ -104,4 +105,6 @@ exported_to_java = {
     "j2objc_mapping_file_info_union": objc_common.j2objc_mapping_file_info_union,
     "j2objc_entry_class_info_union": objc_common.j2objc_entry_class_info_union,
     "init_cc_compilation_context": cc_compilation_helper.init_cc_compilation_context,
+    "java_common": java_common,
+    "get_build_info": get_java_build_info,
 }

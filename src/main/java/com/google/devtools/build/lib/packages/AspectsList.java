@@ -21,7 +21,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec.VisibleForSerialization;
+import com.google.devtools.build.lib.skyframe.serialization.VisibleForSerialization;
 import com.google.devtools.build.lib.skyframe.serialization.autocodec.SerializationConstant;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -391,6 +391,21 @@ public final class AspectsList {
       if (oldAspect != null) {
         throw new AssertionError(
             String.format("Aspect %s has already been added", oldAspect.getName()));
+      }
+    }
+
+    /**
+     * Adds all aspect from the list.
+     *
+     * <p>The function is intended for extended Starlark rules, where aspect list is already built
+     * and may include aspects required by other aspects.
+     */
+    public void addAspects(AspectsList aspectsList) throws EvalException {
+      for (AspectDetails<?> aspect : aspectsList.aspects) {
+        boolean needsToAdd = needsToBeAdded(aspect.getName(), aspect.requiredByAspect);
+        if (needsToAdd) {
+          aspects.put(aspect.getName(), aspect);
+        }
       }
     }
 

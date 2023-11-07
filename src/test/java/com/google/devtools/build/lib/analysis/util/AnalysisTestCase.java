@@ -287,8 +287,8 @@ public abstract class AnalysisTestCase extends FoundationTestCase {
                 RepositoryDelegatorFunction.REPOSITORY_OVERRIDES, ImmutableMap.of()),
             PrecomputedValue.injected(ModuleFileFunction.MODULE_OVERRIDES, ImmutableMap.of()),
             PrecomputedValue.injected(
-                RepositoryDelegatorFunction.DEPENDENCY_FOR_UNCONDITIONAL_FETCHING,
-                RepositoryDelegatorFunction.DONT_FETCH_UNCONDITIONALLY),
+                RepositoryDelegatorFunction.FORCE_FETCH,
+                RepositoryDelegatorFunction.FORCE_FETCH_DISABLED),
             PrecomputedValue.injected(
                 BuildInfoCollectionFunction.BUILD_INFO_FACTORIES,
                 ruleClassProvider.getBuildInfoFactoriesAsMap()),
@@ -351,6 +351,8 @@ public abstract class AnalysisTestCase extends FoundationTestCase {
     }
     if (defaultFlags().contains(Flag.ENABLE_BZLMOD)) {
       optionsParser.parse("--enable_bzlmod");
+    } else {
+      optionsParser.parse("--noenable_bzlmod");
     }
     optionsParser.parse(args);
 
@@ -476,7 +478,7 @@ public abstract class AnalysisTestCase extends FoundationTestCase {
     execConfig =
         skyframeExecutor.getConfiguration(
             reporter,
-            AnalysisTestUtil.execOptions(universeConfig.getOptions(), reporter),
+            AnalysisTestUtil.execOptions(universeConfig.getOptions(), skyframeExecutor, reporter),
             /* keepGoing= */ false);
 
     return analysisResult;

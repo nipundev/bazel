@@ -150,6 +150,7 @@ public class FakeStarlarkRuleFunctionsApi implements StarlarkRuleFunctionsApi {
       Object execGroups,
       Object initializer,
       Object parent,
+      Object extendableAllowlistUnchecked,
       Sequence<?> subrules,
       StarlarkThread thread)
       throws EvalException {
@@ -247,7 +248,10 @@ public class FakeStarlarkRuleFunctionsApi implements StarlarkRuleFunctionsApi {
 
   @Override
   public StarlarkSubruleApi subrule(
-      StarlarkFunction implementation, Dict<?, ?> attrs, StarlarkThread thread) {
+      StarlarkFunction implementation,
+      Dict<?, ?> attrs,
+      Sequence<?> toolchains,
+      StarlarkThread thread) {
     return new FakeStarlarkSubrule();
   }
 

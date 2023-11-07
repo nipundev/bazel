@@ -165,7 +165,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "  return",
         "r = rule(impl, attrs = {'tags': attr.string_list()})");
     ev.assertContainsError(
-        "There is already a built-in attribute 'tags' which cannot be overridden");
+        "Error in rule: attribute `tags`: built-in attributes cannot be overridden.");
   }
 
   @Test
@@ -177,7 +177,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "  return",
         "r = rule(impl, attrs = {'name': attr.string()})");
     ev.assertContainsError(
-        "There is already a built-in attribute 'name' which cannot be overridden");
+        "Error in rule: attribute `name`: built-in attributes cannot be overridden.");
   }
 
   @Test
@@ -2997,7 +2997,8 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
   }
 
   @Test
-  public void initializer_failsSettingInheritedPublicParameter() throws Exception {
+  public void initializer_failsSettingBaseAttribute() throws Exception {
+    // 'args' is an attribute defined for all executable rules
     scratch.file(
         "initializer_testing/b.bzl",
         "def initializer(srcs = [], deps = []):",
@@ -3020,8 +3021,66 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     reporter.addHandler(ev.getEventCollector());
     getConfiguredTarget("//initializer_testing:my_target");
 
-    ev.assertContainsError(
-        "Initializer can only set public, Starlark defined attributes, not 'args'");
+    ev.assertContainsError("Initializer can only set Starlark defined attributes, not 'args'");
+  }
+
+  @Test
+  public void initializer_failsSettingPrivateAttribute_outsideBuiltins() throws Exception {
+    scratch.file(
+        "initializer_testing/b.bzl",
+        "def initializer(srcs = [], deps = []):",
+        "  return {'srcs': srcs, '_tool': ':my_tool'}",
+        "def impl(ctx): ",
+        "  pass",
+        "my_rule = rule(impl,",
+        "  initializer = initializer,",
+        "  attrs = {",
+        "    'srcs': attr.label_list(allow_files = ['ml']),",
+        "    '_tool': attr.label(),",
+        "  })");
+    scratch.file(
+        "initializer_testing/BUILD", //
+        "load(':b.bzl','my_rule')",
+        "filegroup(name='my_tool')",
+        "my_rule(name = 'my_target', srcs = ['a.ml'])");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//initializer_testing:my_target");
+
+    ev.assertContainsError("file '//initializer_testing:b.bzl' cannot use private API");
+  }
+
+  @Test
+  public void initializer_settingPrivateAttribute_insideBuiltins() throws Exception {
+    scratch.file("initializer_testing/builtins/BUILD");
+    scratch.file(
+        "initializer_testing/builtins/b.bzl",
+        "def initializer(srcs = [], deps = []):",
+        "  return {'srcs': srcs, '_tool': ':my_tool'}",
+        "MyInfo = provider()",
+        "def impl(ctx): ",
+        "  return MyInfo(_tool = str(ctx.attr._tool.label))",
+        "my_rule = rule(impl,",
+        "  initializer = initializer,",
+        "  attrs = {",
+        "    'srcs': attr.label_list(allow_files = ['ml']),",
+        "    '_tool': attr.label(),",
+        "  })");
+    scratch.file(
+        "initializer_testing/BUILD", //
+        "load('//initializer_testing/builtins:b.bzl','my_rule')",
+        "filegroup(name='my_tool')",
+        "my_rule(name = 'my_target', srcs = ['a.ml'])");
+
+    ConfiguredTarget myTarget = getConfiguredTarget("//initializer_testing:my_target");
+    StructImpl info =
+        (StructImpl)
+            myTarget.get(
+                new StarlarkProvider.Key(
+                    Label.parseCanonical("//initializer_testing/builtins:b.bzl"), "MyInfo"));
+
+    assertThat(info.getValue("_tool").toString()).isEqualTo("@@//initializer_testing:my_tool");
   }
 
   @Test
@@ -3136,14 +3195,15 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
   }
 
   private void scratchParentRule(String rule, String... ruleArgs) throws IOException {
-    scratch.file("parent/BUILD");
+    scratch.file("extend_rule_testing/parent/BUILD");
     scratch.file(
-        "parent/parent.bzl",
+        "extend_rule_testing/parent/parent.bzl",
         "ParentInfo = provider()",
         "def _impl(ctx):",
         "  return [ParentInfo()]",
         rule + " = rule(",
         "  implementation = _impl,",
+        "  extendable = True,",
         "  attrs = { ",
         "    'srcs': attr.label_list(allow_files = ['.parent']),",
         "    'deps': attr.label_list(providers = [ParentInfo]),",
@@ -3157,7 +3217,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     scratchParentRule("parent_library");
     scratch.file(
         "bar/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
         "def _impl(ctx):",
         "  pass",
         "my_library = rule(",
@@ -3178,17 +3238,16 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
 
   @Test
   public void extendRule_basicUse() throws Exception {
-    // TODO b/300201845 - support calling parent's implementation function
     scratchParentRule("parent_library"); // parent has srcs and deps attribute
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
         "MyInfo = provider()",
         "def _impl(ctx):",
-        "  return MyInfo(",
+        "  return ctx.super() + [MyInfo(",
         "    srcs = ctx.files.srcs,",
         "    deps = ctx.attr.deps,",
-        "    runtime_deps = ctx.attr.runtime_deps)",
+        "    runtime_deps = ctx.attr.runtime_deps)]",
         "my_library = rule(",
         "  implementation = _impl,",
         "  parent = parent_library,",
@@ -3227,16 +3286,437 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
                 .map(ConfiguredTarget::getLabel)
                 .map(Label::getName))
         .containsExactly("dep");
+    StarlarkProvider.Key parentInfoKey =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing/parent:parent.bzl"), "ParentInfo");
+    assertThat(myTarget.get(parentInfoKey)).isNotNull();
+  }
+
+  @Test
+  public void extendRule_withInitializers() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _parent_initializer(srcs, deps):", // only parents attributes
+        "  return {'deps': deps + ['//extend_rule_testing:parent_dep']}",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  initializer = _parent_initializer,",
+        "  extendable = True,",
+        "  attrs = { ",
+        "    'srcs': attr.label_list(allow_files = ['.parent']),",
+        "    'deps': attr.label_list(),",
+        "  },",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "ChildInfo = provider()",
+        "def _child_initializer(srcs, deps, runtime_deps = []):",
+        "  return {'deps': deps + [':child_dep'], 'runtime_deps': runtime_deps + [':runtime_dep']}",
+        "def _impl(ctx):",
+        "  return ctx.super() + [ChildInfo(",
+        "    srcs = ctx.files.srcs,",
+        "    deps = ctx.attr.deps,",
+        "    runtime_deps = ctx.attr.runtime_deps)]",
+        "child_library = rule(",
+        "  implementation = _impl,",
+        "  initializer = _child_initializer,",
+        "  parent = parent_library,",
+        "  attrs = {",
+        "    'runtime_deps': attr.label_list(),",
+        "  }",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'child_library')",
+        "child_library(name = 'my_target', srcs = ['a.parent'], deps = [':dep'])",
+        "filegroup(name = 'dep')",
+        "filegroup(name = 'child_dep')",
+        "filegroup(name = 'parent_dep')",
+        "filegroup(name = 'runtime_dep')");
+
+    ConfiguredTarget myTarget = getConfiguredTarget("//extend_rule_testing:my_target");
+    Rule rule = getRuleContext(myTarget).getRule();
+    StarlarkProvider.Key myInfoKey =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing:child.bzl"), "ChildInfo");
+    StarlarkInfo myInfo = (StarlarkInfo) myTarget.get(myInfoKey);
+
+    assertNoEvents();
+    assertThat(rule.getRuleClassObject().isExecutableStarlark()).isFalse();
+    assertThat(rule.getRuleClassObject().getRuleClassType()).isEqualTo(RuleClassType.NORMAL);
+    assertThat(
+            Sequence.cast(myInfo.getValue("srcs"), Artifact.class, "srcs").stream()
+                .map(Artifact::getFilename))
+        .containsExactly("a.parent");
+    assertThat(
+            Sequence.cast(myInfo.getValue("deps"), ConfiguredTarget.class, "deps").stream()
+                .map(ConfiguredTarget::getLabel)
+                .map(Label::getName))
+        .containsExactly("dep", "child_dep", "parent_dep")
+        .inOrder();
+    assertThat(
+            Sequence.cast(myInfo.getValue("runtime_deps"), ConfiguredTarget.class, "runtime_deps")
+                .stream()
+                .map(ConfiguredTarget::getLabel)
+                .map(Label::getName))
+        .containsExactly("runtime_dep");
+    StarlarkProvider.Key parentInfoKey =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing/parent:parent.bzl"), "ParentInfo");
+    assertThat(myTarget.get(parentInfoKey)).isNotNull();
+  }
+
+  @Test
+  public void extendRule_superNotCalled() throws Exception {
+    scratchParentRule("parent_library"); // parent has srcs and deps attribute
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  return []",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target', srcs = ['a.parent'])");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError(
+        "in my_library rule //extend_rule_testing:my_target: 'super' was not called.");
+  }
+
+  @Test
+  public void extendRule_superCalledTwice() throws Exception {
+    scratchParentRule("parent_library"); // parent has srcs and deps attribute
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "  ctx.super()",
+        "  return []",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target', srcs = ['a.parent'])");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("Error in super: 'super' called the second time.");
+  }
+
+  @Test
+  public void extendRule_noParent_superCalled() throws Exception {
+    scratchParentRule("parent_library"); // parent has srcs and deps attribute
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "  return []",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("Error in super: Can't use 'super' call, the rule has no parent.");
+  }
+
+  @Test
+  public void extendRule_extendRuleTwice() throws Exception {
+    scratchParentRule("parent_library"); // parent has srcs and deps attribute
+    scratch.file(
+        "extend_rule_testing/first_extension.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "MyInfo1 = provider()",
+        "def _impl(ctx):",
+        "  return ctx.super() + [MyInfo1()]",
+        "library_extended_once = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        "  extendable = True",
+        ")");
+    scratch.file(
+        "extend_rule_testing/second_extension.bzl",
+        "load('//extend_rule_testing:first_extension.bzl', 'library_extended_once')",
+        "MyInfo2 = provider()",
+        "def _impl(ctx):",
+        "  return ctx.super() + [MyInfo2()]",
+        "library_extended_twice = rule(",
+        "  implementation = _impl,",
+        "  parent = library_extended_once,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':second_extension.bzl', 'library_extended_twice')",
+        "library_extended_twice(name = 'my_target')");
+
+    ConfiguredTarget myTarget = getConfiguredTarget("//extend_rule_testing:my_target");
+    StarlarkProvider.Key myInfo1Key =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing:first_extension.bzl"), "MyInfo1");
+    StarlarkProvider.Key myInfo2Key =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing:second_extension.bzl"), "MyInfo2");
+    StarlarkProvider.Key parentInfoKey =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing/parent:parent.bzl"), "ParentInfo");
+
+    assertThat(myTarget.get(myInfo1Key)).isNotNull();
+    assertThat(myTarget.get(myInfo2Key)).isNotNull();
+    assertThat(myTarget.get(parentInfoKey)).isNotNull();
+  }
+
+  @Test
+  public void extendRule_extendRuleTwice_superNotCalled() throws Exception {
+    scratchParentRule("parent_library"); // parent has srcs and deps attribute
+    scratch.file(
+        "extend_rule_testing/first_extension.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  return []", // <- here we didn't call ctx.super()
+        "library_extended_once = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        "  extendable = True",
+        ")");
+    scratch.file(
+        "extend_rule_testing/second_extension.bzl",
+        "load('//extend_rule_testing:first_extension.bzl', 'library_extended_once')",
+        "def _impl(ctx):",
+        "  return ctx.super()",
+        "library_extended_twice = rule(",
+        "  implementation = _impl,",
+        "  parent = library_extended_once,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':second_extension.bzl', 'library_extended_twice')",
+        "library_extended_twice(name = 'my_target')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError(
+        "in library_extended_twice rule //extend_rule_testing:my_target: in library_extended_once"
+            + " rule: 'super' was not called.");
+  }
+
+  @Test
+  public void ctxSuper_calledFromAspect() throws Exception {
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "def _aspect_impl(target, ctx):",
+        "  ctx.super()",
+        "  return []",
+        "my_aspect = aspect(_aspect_impl)",
+        "def _impl(ctx):",
+        "  pass",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  attrs = {'deps': attr.label_list(aspects = [my_aspect])},",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target', deps = [':dep'])",
+        "filegroup(name = 'dep')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("Error in super: Can't use 'super' call in an aspect.");
+  }
+
+  @Test
+  public void extendRule_attributeAdditionalAspects() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _aspect_impl(ctx, target):",
+        "  return []",
+        "parent_aspect = aspect(_aspect_impl)",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = True,",
+        "  attrs = { ",
+        "    'srcs': attr.label_list(allow_files = ['.parent']),",
+        "    'deps': attr.label_list(aspects = [parent_aspect]),",
+        "    'tool': attr.label(providers = [ParentInfo]),",
+        "  },",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _aspect_impl(ctx, target):",
+        "  return []",
+        "my_aspect = aspect(_aspect_impl)",
+        "def _impl(ctx):",
+        "  return ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        "  attrs = {",
+        "    'deps': attr.label_list(aspects = [my_aspect]),",
+        "    'tool': attr.label(aspects = [my_aspect]),",
+        "  }",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target', deps = [':dep'])",
+        "filegroup(name = 'dep')");
+
+    ConfiguredTarget myTarget = getConfiguredTarget("//extend_rule_testing:my_target");
+    Rule rule = getRuleContext(myTarget).getRule();
+    assertNoEvents();
+
+    assertThat(rule.getRuleClassObject().isExecutableStarlark()).isFalse();
+    assertThat(rule.getRuleClassObject().getRuleClassType()).isEqualTo(RuleClassType.NORMAL);
+    assertThat(
+            rule.getRuleClassObject().getAttributeByName("deps").getAspectClasses().stream()
+                .map(AspectClass::toString))
+        .containsExactly(
+            "//extend_rule_testing/parent:parent.bzl%parent_aspect",
+            "//extend_rule_testing:child.bzl%my_aspect");
+    assertThat(
+            rule.getRuleClassObject().getAttributeByName("tool").getAspectClasses().stream()
+                .map(AspectClass::toString))
+        .containsExactly("//extend_rule_testing:child.bzl%my_aspect");
+  }
+
+  @Test
+  public void extendRule_overridePrivateAttribute_fails() throws Exception {
+    scratch.file(
+        "extend_rule_testing/parent/BUILD", //
+        "filegroup(name = 'parent_tool')");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "def _impl(ctx):",
+        "  return []",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  attrs = { ",
+        "    '_tool': attr.label(default = ':parent_tool'),",
+        "  },",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  return ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        "  attrs = {",
+        "    '_tool': attr.label(default = ':child_tool'),",
+        "  }",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')",
+        "filegroup(name = 'child_tool')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:BUILD");
+
+    ev.assertContainsError(
+        "Error in rule: attribute `_tool`: private attributes cannot be overridden.");
+  }
+
+  @Test
+  public void extendRule_attributeOverrideDefault() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo(deps = ctx.attr.deps, tools = [ctx.attr.tool])]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = True,",
+        "  attrs = { ",
+        "    'srcs': attr.label_list(allow_files = ['.parent']),",
+        "    'deps': attr.label_list(),",
+        "    'tool': attr.label(default = ':tool_parent'),",
+        "  },",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  return ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        "  attrs = {",
+        "    'deps': attr.label_list(default = [':dep']),",
+        "    'tool': attr.label(default = ':tool_child'),",
+        "  }",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')",
+        "filegroup(name = 'dep')",
+        "filegroup(name = 'tool_child')");
+
+    ConfiguredTarget myTarget = getConfiguredTarget("//extend_rule_testing:my_target");
+    StarlarkProvider.Key parentInfoKey =
+        new StarlarkProvider.Key(
+            Label.parseCanonicalUnchecked("//extend_rule_testing/parent:parent.bzl"), "ParentInfo");
+    StarlarkInfo parentInfo = (StarlarkInfo) myTarget.get(parentInfoKey);
+
+    assertNoEvents();
+    assertThat(
+            Sequence.cast(parentInfo.getValue("deps"), ConfiguredTarget.class, "deps").stream()
+                .map(ConfiguredTarget::getLabel)
+                .map(Label::getName))
+        .containsExactly("dep");
+    assertThat(
+            Sequence.cast(parentInfo.getValue("tools"), ConfiguredTarget.class, "tools").stream()
+                .map(ConfiguredTarget::getLabel)
+                .map(Label::getName))
+        .containsExactly("tool_child");
   }
 
   @Test
   public void extendRule_attributeCollision() throws Exception {
-    // TODO b/300201845 - support public attribute merging/overriding
     // TODO b/300201845 - encapsulate parents and childs private attributes
     scratchParentRule("parent_library");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
         "def _impl(ctx):",
         "  pass",
         "my_library = rule(",
@@ -3252,10 +3732,8 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     reporter.addHandler(ev.getEventCollector());
     getConfiguredTarget("//extend_rule_testing:BUILD");
 
-    // TODO: b/300201845 - adjust error messaging, "built-in attr" -> "attr in parent"
     ev.assertContainsError(
-        "Error in rule: cannot add attribute: There is already a built-in attribute 'srcs' which"
-            + " cannot be overridden.");
+        "Error in rule: attribute `srcs`: Types of parent and child's attributes mismatch.");
   }
 
   @Test
@@ -3263,11 +3741,12 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     scratchParentRule("parent_binary", "executable = True,");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_binary')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_binary')",
         "MyInfo = provider()",
         "def _impl(ctx):",
         "  exec = ctx.actions.declare_file('my_exec')",
         "  ctx.actions.write(exec, '')",
+        "  ctx.super()",
         "  return DefaultInfo(executable = exec)",
         "my_binary = rule(",
         "  implementation = _impl,",
@@ -3291,11 +3770,12 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     scratchParentRule("parent_test", "test = True,");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_test')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_test')",
         "MyInfo = provider()",
         "def _impl(ctx):",
         "  exec = ctx.actions.declare_file('my_exec')",
         "  ctx.actions.write(exec, '')",
+        "  ctx.super()",
         "  return DefaultInfo(executable = exec)",
         "my_test = rule(",
         "  implementation = _impl,",
@@ -3354,10 +3834,10 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "fragments = ['java']");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
         "MyInfo = provider()",
         "def _impl(ctx):",
-        "  pass",
+        "  ctx.super()",
         "my_library = rule(",
         "  implementation = _impl,",
         "  parent = parent_library,",
@@ -3379,7 +3859,243 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         .containsExactly("java", "cc");
   }
 
-  // TODO: b/300201845 - verify build_setting, analysis_test, ... can't be extended
+  private String notExtendableError(String rule) {
+    return String.format(
+        "The rule '%s' is not extendable. Only Starlark rules not using deprecated features (like"
+            + " implicit outputs, output to genfiles) may be extended. Special rules like"
+            + " analysis tests or rules using build_settings cannot be extended.",
+        rule);
+  }
+
+  @Test
+  public void extendRule_notExtendable() throws Exception {
+    BazelEvaluationTestCase ev = new BazelEvaluationTestCase("//extend_rule_testing:child.bzl");
+    ev.exec(
+        "def impl():", //
+        "  pass");
+
+    ev.execAndExport("parent_library = rule(impl, output_to_genfiles = True)");
+    ev.checkEvalError(notExtendableError("parent_library"), "rule(impl, parent = parent_library)");
+
+    ev.execAndExport("parent_library = rule(impl, _skylark_testable = True)");
+    ev.checkEvalError(notExtendableError("parent_library"), "rule(impl, parent = parent_library)");
+
+    ev.execAndExport("parent_test = rule(impl, analysis_test = True)");
+    ev.checkEvalError(notExtendableError("parent_test"), "rule(impl, parent = parent_test)");
+
+    ev.update("config", new StarlarkConfig());
+    ev.execAndExport("parent_library = rule(impl, build_setting = config.int())");
+    ev.checkEvalError(notExtendableError("parent_library"), "rule(impl, parent = parent_library)");
+
+    ev.execAndExport("parent_library = rule(impl, outputs = {'deploy': '%{name}_deploy.jar'})");
+    ev.checkEvalError(notExtendableError("parent_library"), "rule(impl, parent = parent_library)");
+  }
+
+  @Test
+  public void extendRule_nativeRule_notExtendable() throws Exception {
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = native.alias,",
+        "  fragments = ['cc']",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("Parent needs to be a Starlark rule");
+  }
+
+  @Test
+  public void extendRule_extendableAllowed() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = True,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    assertNoEvents();
+  }
+
+  @Test
+  public void extendRule_extendableDisallowed() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = False,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("The rule 'parent_library' is not extendable.");
+  }
+
+  @Test
+  public void extendRule_extendableAllowlisted() throws Exception {
+    scratch.file(
+        "extend_rule_testing/parent/BUILD",
+        "package_group(",
+        "  name = 'allowlist',",
+        "  packages = ['//extend_rule_testing']",
+        ")");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = '//extend_rule_testing/parent:allowlist',",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+    scratch.file(
+        "not_on_allowlist/BUILD",
+        "load('//extend_rule_testing:child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    getConfiguredTarget("//extend_rule_testing:my_target");
+    getConfiguredTarget("//not_on_allowlist:my_target");
+
+    assertNoEvents();
+  }
+
+  @Test
+  public void extendRule_extendableAllowlistDenied() throws Exception {
+    scratch.file(
+        "extend_rule_testing/parent/BUILD",
+        "package_group(",
+        "  name = 'allowlist',",
+        "  packages = []",
+        ")");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        "  extendable = '//extend_rule_testing/parent:allowlist',",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    reporter.removeHandler(failFastHandler);
+    reporter.addHandler(ev.getEventCollector());
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    ev.assertContainsError("Non-allowlisted attempt to extend a rule.");
+  }
+
+  @Test
+  public void extendRule_extendableDefault() throws Exception {
+    scratch.file("extend_rule_testing/parent/BUILD");
+    scratch.file(
+        "extend_rule_testing/parent/parent.bzl",
+        "ParentInfo = provider()",
+        "def _impl(ctx):",
+        "  return [ParentInfo()]",
+        "parent_library = rule(",
+        "  implementation = _impl,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/child.bzl",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
+        "def _impl(ctx):",
+        "  ctx.super()",
+        "my_library = rule(",
+        "  implementation = _impl,",
+        "  parent = parent_library,",
+        ")");
+    scratch.file(
+        "extend_rule_testing/BUILD",
+        "load(':child.bzl', 'my_library')",
+        "my_library(name = 'my_target')");
+
+    if (!analysisMock.isThisBazel()) {
+      reporter.removeHandler(failFastHandler);
+      reporter.addHandler(ev.getEventCollector());
+    }
+
+    getConfiguredTarget("//extend_rule_testing:my_target");
+
+    if (analysisMock.isThisBazel()) {
+      assertNoEvents();
+    } else {
+      ev.assertContainsError("Non-allowlisted attempt to extend a rule.");
+    }
+  }
+
   @Test
   public void extendRule_toolchains_merged() throws Exception {
     scratchParentRule(
@@ -3387,10 +4103,10 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "toolchains = ['" + TestConstants.CPP_TOOLCHAIN_TYPE + "']");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library')",
         "MyInfo = provider()",
         "def _impl(ctx):",
-        "  pass",
+        "  ctx.super()",
         "my_library = rule(",
         "  implementation = _impl,",
         "  parent = parent_library,",
@@ -3419,9 +4135,10 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "provides = [ParentInfo]");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library', 'ParentInfo')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library', 'ParentInfo')",
         "MyInfo = provider()",
         "def _impl(ctx):",
+        "  ctx.super()",
         "  return [MyInfo(), ParentInfo()]",
         "my_library = rule(",
         "  implementation = _impl,",
@@ -3453,9 +4170,10 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "exec_compatible_with = ['" + constr1 + "']");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library', 'ParentInfo')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library', 'ParentInfo')",
         "MyInfo = provider()",
         "def _impl(ctx):",
+        "  ctx.super()",
         "  return [MyInfo(), ParentInfo()]",
         "my_library = rule(",
         "  implementation = _impl,",
@@ -3484,9 +4202,10 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         "exec_groups = {'parent_exec_group': exec_group()}");
     scratch.file(
         "extend_rule_testing/child.bzl",
-        "load('//parent:parent.bzl', 'parent_library', 'ParentInfo')",
+        "load('//extend_rule_testing/parent:parent.bzl', 'parent_library', 'ParentInfo')",
         "MyInfo = provider()",
         "def _impl(ctx):",
+        "  ctx.super()",
         "  return [MyInfo(), ParentInfo()]",
         "my_library = rule(",
         "  implementation = _impl,",
@@ -3556,7 +4275,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
 
   /** Tests two analysis_test calls with same name. */
   @Test
-  public void testAnalysisTestDuplicateName() throws Exception {
+  public void testAnalysisTestDuplicateName_samePackage() throws Exception {
     scratch.file(
         "p/a.bzl",
         "def impl(ctx): ",
@@ -3589,6 +4308,53 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     ev.assertContainsError(
         "Error in analysis_test: my_test_target_test rule 'my_test_target' in package 'p' conflicts"
             + " with existing my_test_target_test rule");
+  }
+
+  // Regression test for b/291752414 (Digest for Starlark-defined rules is wrong for analysis_test).
+  @Test
+  public void testAnalysisTestDuplicateName_differentAttrs_differentPackage() throws Exception {
+    scratch.file("p/BUILD");
+    scratch.file(
+        "p/make.bzl",
+        "def impl(ctx): ",
+        "  return  [AnalysisTestResultInfo(",
+        "    success = True,",
+        "    message = ''",
+        "  )]",
+        "def make(name, additional_string_attr_name):",
+        "  testing.analysis_test(",
+        "    name = name, ",
+        "    implementation = impl,",
+        "    attrs = {additional_string_attr_name: attr.string()},",
+        "    attr_values = {additional_string_attr_name: 'whatever'}",
+        "  )");
+    scratch.file(
+        "p1/BUILD", //
+        "load('//p:make.bzl','make')",
+        "make(name = 'my_test_target', additional_string_attr_name = 'p1')");
+    scratch.file(
+        "p2/BUILD", //
+        "load('//p:make.bzl','make')",
+        "make(name = 'my_test_target', additional_string_attr_name = 'p2')");
+    scratch.file(
+        "s/BUILD", //
+        "test_suite(name = 'suite', tests = ['//p1:my_test_target', '//p2:my_test_target'])");
+
+    // Confirm we can [transitively] analyze both targets together without errors.
+    getConfiguredTarget("//s:suite");
+
+    // Also confirm the definition environment digests differ for the rule classes synthesized under
+    // the hood for these two targets.
+    Rule p1Target =
+        (Rule)
+            getPackageManager()
+                .getTarget(ev.getEventHandler(), Label.parseCanonical("//p1:my_test_target"));
+    Rule p2Target =
+        (Rule)
+            getPackageManager()
+                .getTarget(ev.getEventHandler(), Label.parseCanonical("//p2:my_test_target"));
+    assertThat(p1Target.getRuleClassObject().getRuleDefinitionEnvironmentDigest())
+        .isNotEqualTo(p2Target.getRuleClassObject().getRuleDefinitionEnvironmentDigest());
   }
 
   /**
@@ -3665,8 +4431,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     getConfiguredTarget("//p:my_test_target");
 
     ev.assertContainsError(
-        "Error in analysis_test: cannot add attribute: There is already a built-in attribute 'name'"
-            + " which cannot be overridden.");
+        "Error in analysis_test: attribute `name`: built-in attributes cannot be overridden");
   }
 
   @Test
@@ -3731,7 +4496,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
         .isEqualTo("external/dep~4.5");
     assertThat(eval(module, "Label('@@//foo:bar').workspace_root")).isEqualTo("");
 
-    assertThat(eval(module, "str(Label('@//foo:bar'))")).isEqualTo("@//foo:bar");
+    assertThat(eval(module, "str(Label('@@//foo:bar'))")).isEqualTo("@@//foo:bar");
     assertThat(
             assertThrows(
                 EvalException.class, () -> eval(module, "Label('@//foo:bar').workspace_name")))

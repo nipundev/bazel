@@ -16,7 +16,8 @@ package com.google.devtools.build.lib.skyframe;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.Comparators.max;
+import static com.google.common.collect.Comparators.min;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -70,6 +71,7 @@ import com.google.devtools.build.lib.actions.NotifyOnActionCacheHit.ActionCached
 import com.google.devtools.build.lib.actions.PackageRootResolver;
 import com.google.devtools.build.lib.actions.RemoteArtifactChecker;
 import com.google.devtools.build.lib.actions.ScanningActionEvent;
+import com.google.devtools.build.lib.actions.SpawnActionExecutionException;
 import com.google.devtools.build.lib.actions.SpawnResult;
 import com.google.devtools.build.lib.actions.SpawnResult.MetadataLog;
 import com.google.devtools.build.lib.actions.StoppedScanningActionEvent;
@@ -119,9 +121,9 @@ import com.google.devtools.build.skyframe.SkyKey;
 import com.google.devtools.common.options.OptionsProvider;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentMap;
@@ -185,16 +187,16 @@ public final class SkyframeActionExecutor {
   // again.
   private ConcurrentMap<OwnerlessArtifactWrapper, ActionExecutionState> buildActionMap;
 
-  // We also keep track of actions which were rewound this build from a previously-completed state.
-  // When re-evaluated, these actions should not emit progress events, in order to not confuse the
-  // downstream consumers of action-related event streams, which may (reasonably) have expected an
-  // action to be executed at most once per build.
+  // We also keep track of actions which were rewound this build, possibly from a
+  // previously-completed state. When re-evaluated, these actions should not emit progress events,
+  // in order to not confuse the downstream consumers of action-related event streams, which may
+  // (reasonably) have expected an action to be executed at most once per build.
   //
   // Note: actions which fail due to lost inputs, and get reset (having not completed successfully),
   // will not have any events suppressed during their second evaluation. Consumers of events which
   // get emitted before execution (e.g. ActionStartedEvent, SpawnExecutedEvent) must support
   // receiving more than one of those events per action.
-  private Set<OwnerlessArtifactWrapper> completedAndRewoundActions;
+  private Set<OwnerlessArtifactWrapper> rewoundActions;
 
   // We also keep track of actions that failed due to lost discovered inputs. In some circumstances
   // the input discovery process will use a discovered input before requesting it as a dep. If that
@@ -293,7 +295,7 @@ public final class SkyframeActionExecutor {
 
     // Start with a new map each build so there's no issue with internal resizing.
     this.buildActionMap = Maps.newConcurrentMap();
-    this.completedAndRewoundActions = Sets.newConcurrentHashSet();
+    this.rewoundActions = Sets.newConcurrentHashSet();
     this.lostDiscoveredInputsMap = Maps.newConcurrentMap();
     this.hadExecutionError = false;
     this.actionCacheChecker = checkNotNull(actionCacheChecker);
@@ -399,7 +401,7 @@ public final class SkyframeActionExecutor {
     this.progressSuppressingEventHandler = null;
     this.outputService = null;
     this.buildActionMap = null;
-    this.completedAndRewoundActions = null;
+    this.rewoundActions = null;
     this.lostDiscoveredInputsMap = null;
     this.actionCacheChecker = null;
     this.outputDirectoryHelper = null;
@@ -415,15 +417,19 @@ public final class SkyframeActionExecutor {
     return buildActionMap.get(new OwnerlessArtifactWrapper(action.getPrimaryOutput()));
   }
 
+  /** Determines whether the given action was rewound during the current build. */
+  public boolean wasRewound(Action action) {
+    return rewoundActions.contains(new OwnerlessArtifactWrapper(action.getPrimaryOutput()));
+  }
+
   /**
    * Determines whether the action should have its progress events emitted.
    *
-   * <p>Returns {@code false} for completed and rewound actions, indicating that their progress
-   * events should be suppressed.
+   * <p>Returns {@code false} for rewound actions, indicating that their progress events should be
+   * suppressed.
    */
   boolean shouldEmitProgressEvents(Action action) {
-    return !completedAndRewoundActions.contains(
-        new OwnerlessArtifactWrapper(action.getPrimaryOutput()));
+    return !wasRewound(action);
   }
 
   /**
@@ -460,9 +466,13 @@ public final class SkyframeActionExecutor {
     if (actionExecutionState != null) {
       actionExecutionState.obsolete(failedKey, buildActionMap, ownerlessArtifactWrapper);
     }
-    completedAndRewoundActions.add(ownerlessArtifactWrapper);
+    rewoundActions.add(ownerlessArtifactWrapper);
     if (!actionFileSystemType().inMemoryFileSystem()) {
       outputDirectoryHelper.invalidateTreeArtifactDirectoryCreation(dep.getOutputs());
+    }
+    // Evict the rewinding action from the action cache to ensure that it is executed.
+    if (actionCacheChecker.enabled()) {
+      actionCacheChecker.removeCacheEntry(dep);
     }
   }
 
@@ -485,7 +495,8 @@ public final class SkyframeActionExecutor {
   ActionExecutionValue executeAction(
       Environment env,
       Action action,
-      ActionMetadataHandler metadataHandler,
+      InputMetadataProvider inputMetadataProvider,
+      ActionOutputMetadataStore outputMetadataStore,
       long actionStartTime,
       ActionLookupData actionLookupData,
       ArtifactExpander artifactExpander,
@@ -498,14 +509,14 @@ public final class SkyframeActionExecutor {
       throws ActionExecutionException, InterruptedException {
     if (actionFileSystem != null) {
       updateActionFileSystemContext(
-          action, actionFileSystem, env, metadataHandler, expandedFilesets);
+          action, actionFileSystem, env, outputMetadataStore, expandedFilesets);
     }
 
     ActionExecutionContext actionExecutionContext =
         getContext(
             action,
-            metadataHandler,
-            metadataHandler,
+            inputMetadataProvider,
+            outputMetadataStore,
             artifactExpander,
             topLevelFilesets,
             actionFileSystem,
@@ -534,7 +545,8 @@ public final class SkyframeActionExecutor {
                     actionLookupData,
                     new ActionRunner(
                         action,
-                        metadataHandler,
+                        inputMetadataProvider,
+                        outputMetadataStore,
                         actionStartTime,
                         actionExecutionContext,
                         actionLookupData,
@@ -949,7 +961,8 @@ public final class SkyframeActionExecutor {
     void run(
         Environment env,
         Action action,
-        ActionMetadataHandler metadataHandler,
+        InputMetadataProvider inputMetadataProvider,
+        OutputMetadataStore outputMetadataStore,
         Map<String, String> clientEnv)
         throws InterruptedException, ActionExecutionException;
   }
@@ -957,7 +970,8 @@ public final class SkyframeActionExecutor {
   /** Represents an action that needs to be run. */
   private final class ActionRunner extends ActionStep {
     private final Action action;
-    private final ActionMetadataHandler metadataHandler;
+    private final InputMetadataProvider inputMetadataProvider;
+    private final ActionOutputMetadataStore outputMetadataStore;
     private final long actionStartTimeNanos;
     private final ActionExecutionContext actionExecutionContext;
     private final ActionLookupData actionLookupData;
@@ -966,13 +980,15 @@ public final class SkyframeActionExecutor {
 
     ActionRunner(
         Action action,
-        ActionMetadataHandler metadataHandler,
+        InputMetadataProvider inputMetadataProvider,
+        ActionOutputMetadataStore outputMetadataStore,
         long actionStartTimeNanos,
         ActionExecutionContext actionExecutionContext,
         ActionLookupData actionLookupData,
         ActionPostprocessing postprocessing) {
       this.action = action;
-      this.metadataHandler = metadataHandler;
+      this.inputMetadataProvider = inputMetadataProvider;
+      this.outputMetadataStore = outputMetadataStore;
       this.actionStartTimeNanos = actionStartTimeNanos;
       this.actionExecutionContext = actionExecutionContext;
       this.actionLookupData = actionLookupData;
@@ -994,7 +1010,7 @@ public final class SkyframeActionExecutor {
       // progress events that are generated in the Action implementation are posted to
       // actionExecutionContext.getEventHandler. The reason for this is action rewinding, in which
       // case env.getListener may be a ProgressSuppressingEventHandler. See shouldEmitProgressEvents
-      // and completedAndRewoundActions.
+      // and rewoundActions.
       //
       // It is also unclear why we are posting anything directly to reporter. That probably
       // shouldn't happen.
@@ -1295,8 +1311,8 @@ public final class SkyframeActionExecutor {
               + "\nSymlinks: %s",
           action,
           outputSymlinks);
-      return ActionExecutionValue.createFromOutputStore(
-          this.metadataHandler.getOutputStore(), outputSymlinks, action);
+      return ActionExecutionValue.createFromOutputMetadataStore(
+          this.outputMetadataStore, outputSymlinks, action);
     }
 
     /**
@@ -1313,7 +1329,12 @@ public final class SkyframeActionExecutor {
       @Override
       public ActionStepOrResult run(Environment env) {
         try (SilentCloseable c = profiler.profile(ProfilerTask.INFO, "postprocessing.run")) {
-          postprocessing.run(env, action, metadataHandler, actionExecutionContext.getClientEnv());
+          postprocessing.run(
+              env,
+              action,
+              inputMetadataProvider,
+              outputMetadataStore,
+              actionExecutionContext.getClientEnv());
           if (env.valuesMissing()) {
             return this;
           }
@@ -1514,7 +1535,7 @@ public final class SkyframeActionExecutor {
 
   /**
    * Validates that all action outputs were created or intentionally omitted. This can result in
-   * chmod calls on the output files; see {@link ActionMetadataHandler}.
+   * chmod calls on the output files; see {@link ActionOutputMetadataStore}.
    *
    * @return false if some outputs are missing or invalid, true - otherwise.
    */
@@ -1527,9 +1548,9 @@ public final class SkyframeActionExecutor {
     boolean success = true;
     try (SilentCloseable c = profiler.profile(ProfilerTask.INFO, "checkOutputs")) {
       for (Artifact output : action.getOutputs()) {
-        // getMetadata has the side effect of adding the artifact to the cache if it's not there
-        // already (e.g., due to a previous call to MetadataHandler.injectDigest), therefore we only
-        // call it if we know the artifact is not omitted.
+        // getOutputMetadata() has the side effect of adding the artifact to the cache if it's not
+        // there already (e.g., due to a previous call to MetadataInjector.injectFile()), therefore
+        // we only call it if we know the artifact is not omitted.
         if (!outputMetadataStore.artifactOmitted(output)) {
           try {
             FileArtifactValue metadata = outputMetadataStore.getOutputMetadata(output);
@@ -1786,7 +1807,6 @@ public final class SkyframeActionExecutor {
       ErrorTiming errorTiming) {
     Path stdout = null;
     Path stderr = null;
-    ImmutableList<MetadataLog> logs = ImmutableList.of();
 
     if (outErr.hasRecordedStdout()) {
       stdout = outErr.getOutputPath();
@@ -1794,12 +1814,24 @@ public final class SkyframeActionExecutor {
     if (outErr.hasRecordedStderr()) {
       stderr = outErr.getErrorPath();
     }
-    if (actionResult != null) {
-      logs =
-          actionResult.spawnResults().stream()
-              .map(SpawnResult::getActionMetadataLog)
-              .filter(Objects::nonNull)
-              .collect(toImmutableList());
+    // Collect MetadataLogs and spawn start times/end times from the Action's SpawnResults.
+    ImmutableList<SpawnResult> spawnResults =
+        findSpawnResultsInActionResultAndException(actionResult, exception);
+    ImmutableList.Builder<MetadataLog> logs = ImmutableList.builder();
+    Instant firstStartTime = Instant.MAX;
+    Instant lastEndTime = Instant.MIN;
+    for (SpawnResult spawnResult : spawnResults) {
+      MetadataLog log = spawnResult.getActionMetadataLog();
+      if (log != null) {
+        logs.add(log);
+      }
+      // Not all SpawnResults have a start time, and some use Instant.MIN/MAX instead of null.
+      @Nullable Instant startTime = spawnResult.getStartTime();
+      if (startTime != null && !startTime.equals(Instant.MIN) && !startTime.equals(Instant.MAX)) {
+        Instant endTime = startTime.plusMillis(spawnResult.getWallTimeInMs());
+        firstStartTime = min(firstStartTime, startTime);
+        lastEndTime = max(lastEndTime, endTime);
+      }
     }
     eventHandler.post(
         new ActionExecutedEvent(
@@ -1811,8 +1843,27 @@ public final class SkyframeActionExecutor {
             primaryOutputMetadata,
             stdout,
             stderr,
-            logs,
-            errorTiming));
+            logs.build(),
+            errorTiming,
+            firstStartTime.equals(Instant.MAX) ? null : firstStartTime,
+            lastEndTime.equals(Instant.MIN) ? null : firstStartTime));
+  }
+
+  /**
+   * Extracts the {@link SpawnResult SpawnResults} from either a completed {@link ActionResult} or a
+   * {@link SpawnActionExecutionException}.
+   *
+   * <p>Returns an empty list for any other kind of {@link ActionExecutionException}.
+   */
+  private static ImmutableList<SpawnResult> findSpawnResultsInActionResultAndException(
+      @Nullable ActionResult actionResult, @Nullable ActionExecutionException exception) {
+    if (actionResult != null) {
+      return actionResult.spawnResults();
+    }
+    if (exception instanceof SpawnActionExecutionException) {
+      return ImmutableList.of(((SpawnActionExecutionException) exception).getSpawnResult());
+    }
+    return ImmutableList.of();
   }
 
   /** An object supplying data for action execution progress reporting. */
@@ -1825,6 +1876,7 @@ public final class SkyframeActionExecutor {
   public interface ActionCompletedReceiver {
     /** Receives a completed action. */
     void actionCompleted(ActionLookupData actionLookupData);
+
     /** Notes that an action has started, giving the key. */
     void noteActionEvaluationStarted(ActionLookupData actionLookupData, Action action);
   }

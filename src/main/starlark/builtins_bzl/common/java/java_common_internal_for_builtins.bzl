@@ -23,6 +23,7 @@ load(
     "merge_plugin_info_without_outputs",
 )
 load(":common/java/java_semantics.bzl", "semantics")
+load(":common/java/java_toolchain.bzl", "JavaToolchainInfo")
 load(":common/java/sharded_javac.bzl", "experimental_sharded_javac", "use_sharded_javac")
 load(":common/paths.bzl", "paths")
 
@@ -111,15 +112,13 @@ def compile(
     Returns:
         (JavaInfo)
     """
+    _java_common_internal.check_provider_instances([java_toolchain], "java_toolchain", JavaToolchainInfo)
     _java_common_internal.check_provider_instances(plugins, "plugins", JavaPluginInfo)
 
     plugin_info = merge_plugin_info_without_outputs(plugins + deps)
 
     all_javac_opts = []  # [depset[str]]
-    all_javac_opts.append(_java_common_internal.default_javac_opts(
-        java_toolchain = java_toolchain,
-        as_depset = True,
-    ))
+    all_javac_opts.append(java_toolchain._javacopts)
 
     all_javac_opts.append(ctx.fragments.java.default_javac_flags_depset)
     all_javac_opts.append(semantics.compatible_javac_options(
@@ -142,15 +141,15 @@ def compile(
         ["--add-exports=%s=ALL-UNNAMED" % x for x in add_exports],
         order = "preorder",
     ))
-    all_javac_opts.append(depset(
-        ["--add-opens=%s=ALL-UNNAMED" % x for x in add_opens],
-        order = "preorder",
-    ))
 
     # detokenize target's javacopts, it will be tokenized before compilation
     all_javac_opts.append(helper.detokenize_javacopts(helper.tokenize_javacopts(ctx, javac_opts)))
 
-    all_javac_opts = depset(order = "preorder", transitive = all_javac_opts)
+    # we reverse the list of javacopts depsets, so that we keep the right-most set
+    # in case it's deduped. When this depset is flattened, we will reverse again,
+    # and then tokenize before passing to javac. This way, right-most javacopts will
+    # be retained and "win out".
+    all_javac_opts = depset(order = "preorder", transitive = reversed(all_javac_opts))
 
     # Optimization: skip this if there are no annotation processors, to avoid unnecessarily
     # disabling the direct classpath optimization if `enable_annotation_processor = False`
@@ -459,20 +458,4 @@ def get_runtime_classpath_for_archive(jars, excluded_jars):
     return _java_common_internal.get_runtime_classpath_for_archive(
         jars,
         excluded_jars,
-    )
-
-def filter_protos_for_generated_extension_registry(runtime_jars, deploy_env):
-    """Get proto artifacts from runtime_jars excluding those in deploy_env
-
-    Args:
-        runtime_jars: (depset[File]) the artifacts to scan
-        deploy_env: (depset[File]) the artifacts to exclude
-
-    Returns
-        (depset[File], bool) A tuple of the filtered protos and whether all protos are 'lite'
-            flavored
-    """
-    return _java_common_internal.filter_protos_for_generated_extension_registry(
-        runtime_jars,
-        deploy_env,
     )

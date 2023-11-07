@@ -16,6 +16,7 @@
 Definition of java_toolchain rule and JavaToolchainInfo provider.
 """
 
+load(":common/java/boot_class_path_info.bzl", "BootClassPathInfo")
 load(":common/java/java_helper.bzl", "helper")
 load(":common/java/java_info.bzl", "JavaPluginDataInfo")
 load(":common/java/java_package_configuration.bzl", "JavaPackageConfigurationInfo")
@@ -23,7 +24,6 @@ load(":common/java/java_runtime.bzl", "JavaRuntimeInfo")
 load(":common/java/java_semantics.bzl", "semantics")
 
 _java_common_internal = _builtins.internal.java_common_internal_do_not_use
-BootClassPathInfo = _java_common_internal.BootClassPathInfo
 ToolchainInfo = _builtins.toplevel.platform_common.ToolchainInfo
 PackageSpecificationInfo = _builtins.toplevel.PackageSpecificationInfo
 
@@ -59,6 +59,7 @@ JavaToolchainInfo, _new_javatoolchaininfo = provider(
         "_header_compiler_direct": _PRIVATE_API_DOC_STRING,
         "_javabuilder": _PRIVATE_API_DOC_STRING,
         "_javacopts": _PRIVATE_API_DOC_STRING,
+        "_javacopts_list": _PRIVATE_API_DOC_STRING,
         "_javac_supports_workers": _PRIVATE_API_DOC_STRING,
         "_javac_supports_multiplex_workers": _PRIVATE_API_DOC_STRING,
         "_javac_supports_worker_cancellation": _PRIVATE_API_DOC_STRING,
@@ -75,13 +76,14 @@ JavaToolchainInfo, _new_javatoolchaininfo = provider(
 )
 
 def _java_toolchain_impl(ctx):
+    javac_opts_list = _get_javac_opts(ctx)
     bootclasspath_info = _get_bootclasspath_info(ctx)
     java_toolchain_info = _new_javatoolchaininfo(
         bootclasspath = bootclasspath_info.bootclasspath,
         ijar = ctx.attr.ijar.files_to_run if ctx.attr.ijar else None,
         jacocorunner = ctx.attr.jacocorunner.files_to_run if ctx.attr.jacocorunner else None,
         java_runtime = _get_java_runtime(ctx),
-        jvm_opt = depset([ctx.expand_location(opt) for opt in ctx.attr.jvm_opts]),
+        jvm_opt = depset(_java_common_internal.expand_java_opts(ctx, "jvm_opts", tokenize = False, exec_paths = True)),
         label = ctx.label,
         proguard_allowlister = ctx.attr.proguard_allowlister.files_to_run if ctx.attr.proguard_allowlister else None,
         single_jar = ctx.attr.singlejar.files_to_run,
@@ -100,7 +102,8 @@ def _java_toolchain_impl(ctx):
         _header_compiler_builtin_processors = depset(ctx.attr.header_compiler_builtin_processors),
         _header_compiler_direct = _get_tool_from_executable(ctx, "header_compiler_direct"),
         _javabuilder = _get_tool_from_ctx(ctx, "javabuilder", "javabuilder_data", "javabuilder_jvm_opts"),
-        _javacopts = _get_javac_opts(ctx),
+        _javacopts = helper.detokenize_javacopts(javac_opts_list),
+        _javacopts_list = javac_opts_list,
         _javac_supports_workers = ctx.attr.javac_supports_workers,
         _javac_supports_multiplex_workers = ctx.attr.javac_supports_multiplex_workers,
         _javac_supports_worker_cancellation = ctx.attr.javac_supports_worker_cancellation,
@@ -139,9 +142,9 @@ def _get_javac_opts(ctx):
         opts.extend(["-target", ctx.attr.target_version])
     if ctx.attr.xlint:
         opts.append("-Xlint:" + ",".join(ctx.attr.xlint))
-    opts.extend([token for opt in ctx.attr.misc for token in ctx.tokenize(ctx.expand_location(opt))])
-    opts.extend([token for opt in ctx.attr.javacopts for token in ctx.tokenize(ctx.expand_location(opt))])
-    return helper.detokenize_javacopts(opts)
+    opts.extend(_java_common_internal.expand_java_opts(ctx, "misc", tokenize = True))
+    opts.extend(_java_common_internal.expand_java_opts(ctx, "javacopts", tokenize = True))
+    return opts
 
 def _get_android_lint_tool(ctx):
     if not ctx.attr.android_lint_runner:
@@ -239,7 +242,7 @@ _java_toolchain = rule(
         "jspecify_stubs": attr.label_list(cfg = "exec", allow_files = True),
         "jvm_opts": attr.string_list(default = []),
         "misc": attr.string_list(default = []),
-        "oneversion": attr.label(cfg = "exec", executable = True, allow_single_file = True),
+        "oneversion": attr.label(cfg = "exec", allow_files = True, executable = True),
         "oneversion_whitelist": attr.label(allow_single_file = True),
         "oneversion_allowlist_for_tests": attr.label(allow_single_file = True),
         "package_configuration": attr.label_list(cfg = "exec", providers = [JavaPackageConfigurationInfo]),

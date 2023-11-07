@@ -203,7 +203,9 @@ def _jar_and_target_arg_mapper(jar):
     return jar.path + "," + str(jar.owner)
 
 def _get_feature_config(ctx):
-    cc_toolchain = cc_helper.find_cpp_toolchain(ctx)
+    cc_toolchain = cc_helper.find_cpp_toolchain(ctx, mandatory = False)
+    if not cc_toolchain:
+        return None
     feature_config = cc_common.configure_features(
         ctx = ctx,
         cc_toolchain = cc_toolchain,
@@ -378,15 +380,17 @@ def _shell_escape(s):
 def _tokenize_javacopts(ctx, opts):
     """Tokenizes a list or depset of options to a list.
 
+    Iff opts is a depset, we reverse the flattened list to ensure right-most
+    duplicates are preserved in their correct position.
+
     Args:
         ctx: (RuleContext) the rule context
         opts: (depset[str]|[str]) the javac options to tokenize
-
     Returns:
         [str] list of tokenized options
     """
     if hasattr(opts, "to_list"):
-        opts = opts.to_list()
+        opts = reversed(opts.to_list())
     return [
         token
         for opt in opts
@@ -397,7 +401,7 @@ def _detokenize_javacopts(opts):
     """Detokenizes a list of options to a depset.
 
     Args:
-        opts: (depset[str]) the javac options to tokenize
+        opts: ([str]) the javac options to detokenize
 
     Returns:
         (depset[str]) depset of detokenized options

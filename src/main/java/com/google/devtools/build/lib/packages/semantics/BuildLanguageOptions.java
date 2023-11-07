@@ -197,7 +197,7 @@ public final class BuildLanguageOptions extends OptionsBase {
   @Option(
       name = "enable_bzlmod",
       oldName = "experimental_enable_bzlmod",
-      defaultValue = "false",
+      defaultValue = "true",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
       effectTags = OptionEffectTag.LOADING_AND_ANALYSIS,
       help =
@@ -446,17 +446,6 @@ public final class BuildLanguageOptions extends OptionsBase {
   public boolean incompatibleVisibilityPrivateAttributesAtDefinition;
 
   @Option(
-      name = "incompatible_new_actions_api",
-      defaultValue = "true",
-      documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
-      effectTags = {OptionEffectTag.BUILD_FILE_SEMANTICS},
-      metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
-      help =
-          "If set to true, the API to create actions is only available on `ctx.actions`, "
-              + "not on `ctx`.")
-  public boolean incompatibleNewActionsApi;
-
-  @Option(
       name = "incompatible_no_attr_license",
       defaultValue = "true",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
@@ -651,7 +640,7 @@ public final class BuildLanguageOptions extends OptionsBase {
 
   @Option(
       name = "incompatible_disable_objc_library_transition",
-      defaultValue = "false",
+      defaultValue = "true",
       documentationCategory = OptionDocumentationCategory.STARLARK_SEMANTICS,
       effectTags = {OptionEffectTag.BUILD_FILE_SEMANTICS},
       metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
@@ -686,11 +675,20 @@ public final class BuildLanguageOptions extends OptionsBase {
   @Option(
       name = "incompatible_disable_non_executable_java_binary",
       defaultValue = "false",
-      documentationCategory = OptionDocumentationCategory.TOOLCHAIN,
+      documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
       effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS},
       metadataTags = {OptionMetadataTag.INCOMPATIBLE_CHANGE},
       help = "If true, java_binary is always executable. create_executable attribute is removed.")
   public boolean incompatibleDisableNonExecutableJavaBinary;
+
+  @Option(
+      name = "experimental_rule_extension_api",
+      defaultValue = "false",
+      documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+      effectTags = {OptionEffectTag.LOADING_AND_ANALYSIS},
+      metadataTags = {OptionMetadataTag.EXPERIMENTAL},
+      help = "Enable experimental rule extension API and subrule APIs")
+  public boolean experimentalRuleExtensionApi;
 
   /**
    * An interner to reduce the number of StarlarkSemantics instances. A single Blaze instance should
@@ -745,7 +743,6 @@ public final class BuildLanguageOptions extends OptionsBase {
                 INCOMPATIBLE_FIX_PACKAGE_GROUP_REPOROOT_SYNTAX,
                 incompatibleFixPackageGroupReporootSyntax)
             .setBool(INCOMPATIBLE_JAVA_COMMON_PARAMETERS, incompatibleJavaCommonParameters)
-            .setBool(INCOMPATIBLE_NEW_ACTIONS_API, incompatibleNewActionsApi)
             .setBool(INCOMPATIBLE_NO_ATTR_LICENSE, incompatibleNoAttrLicense)
             .setBool(INCOMPATIBLE_NO_IMPLICIT_FILE_EXPORT, incompatibleNoImplicitFileExport)
             .setBool(INCOMPATIBLE_NO_PACKAGE_DISTRIBS, incompatibleNoPackageDistribs)
@@ -794,6 +791,7 @@ public final class BuildLanguageOptions extends OptionsBase {
             .setBool(
                 INCOMPATIBLE_DISABLE_NON_EXECUTABLE_JAVA_BINARY,
                 incompatibleDisableNonExecutableJavaBinary)
+            .setBool(EXPERIMENTAL_RULE_EXTENSION_API, experimentalRuleExtensionApi)
             .build();
     return INTERNER.intern(semantics);
   }
@@ -821,7 +819,7 @@ public final class BuildLanguageOptions extends OptionsBase {
   public static final String EXPERIMENTAL_ENABLE_ANDROID_MIGRATION_APIS =
       "-experimental_enable_android_migration_apis";
   public static final String EXPERIMENTAL_ENABLE_SCL_DIALECT = "-experimental_enable_scl_dialect";
-  public static final String ENABLE_BZLMOD = "-enable_bzlmod";
+  public static final String ENABLE_BZLMOD = "+enable_bzlmod";
   public static final String EXPERIMENTAL_ISOLATED_EXTENSION_USAGES =
       "-experimental_isolated_extension_usages";
   public static final String INCOMPATIBLE_EXISTING_RULES_IMMUTABLE_VIEW =
@@ -851,7 +849,6 @@ public final class BuildLanguageOptions extends OptionsBase {
       "+incompatible_do_not_split_linking_cmdline";
   public static final String INCOMPATIBLE_JAVA_COMMON_PARAMETERS =
       "+incompatible_java_common_parameters";
-  public static final String INCOMPATIBLE_NEW_ACTIONS_API = "+incompatible_new_actions_api";
   public static final String INCOMPATIBLE_NO_ATTR_LICENSE = "+incompatible_no_attr_license";
   public static final String INCOMPATIBLE_NO_PACKAGE_DISTRIBS = "-incompatible_no_package_distribs";
   public static final String INCOMPATIBLE_NO_IMPLICIT_FILE_EXPORT =
@@ -879,13 +876,14 @@ public final class BuildLanguageOptions extends OptionsBase {
   public static final String INCOMPATIBLE_OBJC_PROVIDER_REMOVE_LINKING_INFO =
       "-incompatible_objc_provider_remove_linking_info";
   public static final String INCOMPATIBLE_DISABLE_OBJC_LIBRARY_TRANSITION =
-      "-incompatible_disable_objc_library_transition";
+      "+incompatible_disable_objc_library_transition";
   public static final String INCOMPATIBLE_FAIL_ON_UNKNOWN_ATTRIBUTES =
       "+incompatible_fail_on_unknown_attributes";
   public static final String INCOMPATIBLE_ENABLE_PROTO_TOOLCHAIN_RESOLUTION =
       "-incompatible_enable_proto_toolchain_resolution";
   public static final String INCOMPATIBLE_DISABLE_NON_EXECUTABLE_JAVA_BINARY =
       "-incompatible_disable_non_executable_java_binary";
+  public static final String EXPERIMENTAL_RULE_EXTENSION_API = "-experimental_rule_extension_api";
 
   // non-booleans
   public static final StarlarkSemantics.Key<String> EXPERIMENTAL_BUILTINS_BZL_PATH =

@@ -58,6 +58,7 @@ import com.google.devtools.build.lib.packages.Type;
 import com.google.devtools.build.lib.rules.objc.ObjcProvider;
 import com.google.devtools.build.lib.skyframe.AspectKeyCreator.AspectKey;
 import com.google.devtools.build.lib.skyframe.ConfiguredTargetAndData;
+import com.google.devtools.build.lib.testutil.TestConstants;
 import com.google.devtools.build.lib.testutil.TestRuleClassProvider;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.PathFragment;
@@ -223,7 +224,6 @@ public class StarlarkIntegrationTest extends BuildViewTestCase {
 
   @Test
   public void testMacroHasGeneratorAttributes() throws Exception {
-    setBuildLanguageOptions("--experimental_builtins_injection_override=+cc_binary");
     scratch.file(
         "test/starlark/extension.bzl",
         "def _impl(ctx):",
@@ -242,9 +242,7 @@ public class StarlarkIntegrationTest extends BuildViewTestCase {
         "  native_macro_rule = 'native_macro')",
         "macro_rule(name = 'macro_target')",
         "no_macro_rule(name = 'no_macro_target')",
-        "native_macro_rule(name = 'native_macro_target')",
-        "cc_binary(name = 'cc_target', deps = ['cc_dep'])",
-        "cc_library(name = 'cc_dep')");
+        "native_macro_rule(name = 'native_macro_target')");
 
     Rule withMacro = getRuleForTarget("macro_target");
     assertThat(withMacro.getAttr("generator_name")).isEqualTo("macro_target");
@@ -261,12 +259,6 @@ public class StarlarkIntegrationTest extends BuildViewTestCase {
     assertThat(nativeMacro.getAttr("generator_name")).isEqualTo("native_macro_target");
     assertThat(nativeMacro.getAttr("generator_function")).isEqualTo("native_macro");
     assertThat(nativeMacro.getAttr("generator_location")).isEqualTo("test/starlark/BUILD:5:18");
-
-    // Starlark version of cc_binary is created by a wrapper macro.
-    Rule ccTarget = getRuleForTarget("cc_target");
-    assertThat(ccTarget.getAttr("generator_name")).isEqualTo("cc_target");
-    assertThat(ccTarget.getAttr("generator_function")).isEqualTo("cc_binary");
-    assertThat(ccTarget.getAttr("generator_location")).isEqualTo("test/starlark/BUILD:6:10");
   }
 
   @Test
@@ -2861,18 +2853,20 @@ public class StarlarkIntegrationTest extends BuildViewTestCase {
   }
 
   @Test
-  public void testBadAllowlistTransition_noAllowlist() throws Exception {
+  public void testBadAllowlistTransition_automaticAllowlist() throws Exception {
     scratch.overwriteFile(
-        "tools/allowlists/function_transition_allowlist/BUILD",
+        TestConstants.TOOLS_REPOSITORY_SCRATCH
+            + "tools/allowlists/function_transition_allowlist/BUILD",
         "package_group(",
         "    name = 'function_transition_allowlist',",
         "    packages = [",
-        "        '//test/...',",
+        // cross-repo allowlists don't work well
+        analysisMock.isThisBazel() ? "'public'," : "'//test/...',",
         "    ],",
         ")");
     scratch.file(
         "test/rules.bzl",
-        "def transition_func(settings):",
+        "def transition_func(settings, attr):",
         "  return {'t0': {'//command_line_option:cpu': 'k8'}}",
         "my_transition = transition(implementation = transition_func, inputs = [],",
         "  outputs = ['//command_line_option:cpu'])",
@@ -2896,9 +2890,8 @@ public class StarlarkIntegrationTest extends BuildViewTestCase {
         "my_rule(name = 'my_rule', dep = ':dep')",
         "simple_rule(name = 'dep')");
 
-    reporter.removeHandler(failFastHandler);
     getConfiguredTarget("//test:my_rule");
-    assertContainsEvent("Use of Starlark transition without allowlist");
+    assertNoEvents();
   }
 
   @Test

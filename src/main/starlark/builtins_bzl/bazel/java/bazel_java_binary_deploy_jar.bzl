@@ -18,9 +18,9 @@ This needs to be a separate rule because we need to add the runfiles manifest as
 the generating actions, so that the runfiles symlink tree is staged for the deploy jars.
 """
 
-load(":common/java/java_binary_deploy_jar.bzl", "create_deploy_archives", "make_deploy_jars_rule")
+load(":common/cc/semantics.bzl", cc_semantics = "semantics")
 load(":common/java/java_binary.bzl", "InternalDeployJarInfo")
-load(":common/java/java_common_internal_for_builtins.bzl", "get_build_info")
+load(":common/java/java_binary_deploy_jar.bzl", "create_deploy_archives", "make_deploy_jars_rule")
 
 def _stamping_enabled(ctx, stamp):
     if ctx.configuration.is_tool_configuration():
@@ -28,7 +28,10 @@ def _stamping_enabled(ctx, stamp):
     return (stamp == 1) or (stamp == -1 and ctx.configuration.stamp_binaries())
 
 def _get_build_info(ctx, stamp):
-    return get_build_info(ctx, _stamping_enabled(ctx, stamp))
+    if _stamping_enabled(ctx, stamp):
+        return ctx.attr._build_info_translator[OutputGroupInfo].non_redacted_build_info_files.to_list()
+    else:
+        return ctx.attr._build_info_translator[OutputGroupInfo].redacted_build_info_files.to_list()
 
 def _bazel_deploy_jars_impl(ctx):
     info = ctx.attr.binary[InternalDeployJarInfo]
@@ -59,6 +62,12 @@ def _bazel_deploy_jars_impl(ctx):
 
     return []
 
-deploy_jars = make_deploy_jars_rule(implementation = _bazel_deploy_jars_impl)
+_ATTRS = {
+    "_cc_toolchain": attr.label(
+        default = "@" + cc_semantics.get_repo() + "//tools/cpp:optional_current_cc_toolchain",
+    ),
+}
 
-deploy_jars_nonexec = make_deploy_jars_rule(implementation = _bazel_deploy_jars_impl, create_executable = False)
+deploy_jars = make_deploy_jars_rule(implementation = _bazel_deploy_jars_impl, extra_attrs = _ATTRS)
+
+deploy_jars_nonexec = make_deploy_jars_rule(implementation = _bazel_deploy_jars_impl, extra_attrs = _ATTRS, create_executable = False)

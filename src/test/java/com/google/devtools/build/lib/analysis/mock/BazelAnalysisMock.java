@@ -139,6 +139,7 @@ public final class BazelAnalysisMock extends AnalysisMock {
     config.create("protobuf_workspace/WORKSPACE");
     config.create("protobuf_workspace/MODULE.bazel", "module(name='com_google_protobuf')");
     config.overwrite("WORKSPACE", workspaceContents.toArray(new String[0]));
+    config.overwrite("MODULE.bazel");
     /* The rest of platforms is initialized in {@link MockPlatformSupport}. */
     config.create("platforms_workspace/WORKSPACE", "workspace(name = 'platforms')");
     config.create("platforms_workspace/MODULE.bazel", "module(name = 'platforms')");
@@ -419,6 +420,22 @@ public final class BazelAnalysisMock extends AnalysisMock {
         "tools/allowlists/config_feature_flag/BUILD",
         "package_group(name='config_feature_flag', packages=['public'])",
         "package_group(name='config_feature_flag_Setter', packages=['public'])");
+    config.create(
+        "embedded_tools/tools/allowlists/extend_rule_allowlist/BUILD",
+        "package_group(",
+        "    name = 'extend_rule_allowlist',",
+        "    packages = ['public'],",
+        ")");
+
+    config.create(
+        "embedded_tools/tools/allowlists/android_binary_allowlist/BUILD",
+        "package_group(",
+        "    name='enable_starlark_dex_desugar_proguard',",
+        "    includes=['@@//tools/allowlists/android_binary_allowlist:enable_starlark_dex_desugar_proguard'],",
+        ")");
+    config.create(
+        "tools/allowlists/android_binary_allowlist/BUILD",
+        "package_group(name='enable_starlark_dex_desugar_proguard', packages=[])");
 
     config.create(
         "embedded_tools/tools/proto/BUILD",
@@ -639,17 +656,44 @@ public final class BazelAnalysisMock extends AnalysisMock {
     config.create(
         "embedded_tools/tools/build_defs/build_info/bazel_cc_build_info.bzl",
         "def _impl(ctx):",
+        "  volatile_file = ctx.actions.declare_file('volatile_file.h')",
+        "  non_volatile_file = ctx.actions.declare_file('non_volatile_file.h')",
+        "  redacted_file = ctx.actions.declare_file('redacted_file.h')",
+        "  ctx.actions.write(output = volatile_file, content = '')",
+        "  ctx.actions.write(output = non_volatile_file, content = '')",
+        "  ctx.actions.write(output = redacted_file, content = '')",
         "  output_groups = {",
-        "    'non_redacted_build_info_files': depset([ctx.info_file, ctx.version_file]),",
-        "    'redacted_build_info_files': depset([ctx.version_file]),",
+        "    'non_redacted_build_info_files': depset([volatile_file, non_volatile_file]),",
+        "    'redacted_build_info_files': depset([redacted_file]),",
         "  }",
         "  return OutputGroupInfo(**output_groups)",
         "bazel_cc_build_info = rule(implementation = _impl)");
     config.create(
+        "embedded_tools/tools/build_defs/build_info/bazel_java_build_info.bzl",
+        "def _impl(ctx):",
+        "  volatile_file = ctx.actions.declare_file('volatile_file.properties')",
+        "  non_volatile_file = ctx.actions.declare_file('non_volatile_file.properties')",
+        "  redacted_file = ctx.actions.declare_file('redacted_file.properties')",
+        "  ctx.actions.write(output = volatile_file, content = '')",
+        "  ctx.actions.write(output = non_volatile_file, content = '')",
+        "  ctx.actions.write(output = redacted_file, content = '')",
+        "  output_groups = {",
+        "    'non_redacted_build_info_files': depset([volatile_file, non_volatile_file]),",
+        "    'redacted_build_info_files': depset([redacted_file]),",
+        "  }",
+        "  return OutputGroupInfo(**output_groups)",
+        "bazel_java_build_info = rule(implementation = _impl)");
+    config.create(
         "embedded_tools/tools/build_defs/build_info/BUILD",
         "load('//tools/build_defs/build_info:bazel_cc_build_info.bzl'," + " 'bazel_cc_build_info')",
+        "load('//tools/build_defs/build_info:bazel_java_build_info.bzl',"
+            + " 'bazel_java_build_info')",
         "bazel_cc_build_info(",
         "    name = 'cc_build_info',",
+        "    visibility = ['//visibility:public'],",
+        ")",
+        "bazel_java_build_info(",
+        "    name = 'java_build_info',",
         "    visibility = ['//visibility:public'],",
         ")");
     config.create(

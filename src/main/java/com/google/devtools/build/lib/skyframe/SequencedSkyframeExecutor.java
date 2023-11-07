@@ -312,16 +312,18 @@ public class SequencedSkyframeExecutor extends SkyframeExecutor {
     return GraphInconsistencyReceiver.THROWING;
   }
 
-  private static boolean rewindingEnabled(OptionsProvider options) throws AbruptExitException {
+  private boolean rewindingEnabled(OptionsProvider options) throws AbruptExitException {
     var buildRequestOptions = options.getOptions(BuildRequestOptions.class);
     if (buildRequestOptions == null || !buildRequestOptions.rewindLostInputs) {
       return false;
     }
-    if (buildRequestOptions.useActionCache) {
+    if (isMergedSkyframeAnalysisExecution()) {
       throw new AbruptExitException(
           DetailedExitCode.of(
               FailureDetail.newBuilder()
-                  .setMessage("--rewind_lost_inputs requires --nouse_action_cache")
+                  .setMessage(
+                      "--rewind_lost_inputs is not compatible with Skymeld"
+                          + " (--experimental_merged_skyframe_analysis_execution)")
                   .setActionRewinding(
                       ActionRewinding.newBuilder()
                           .setCode(ActionRewinding.Code.REWIND_LOST_INPUTS_PREREQ_UNMET))

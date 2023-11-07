@@ -49,14 +49,12 @@ import net.starlark.java.eval.StarlarkValue;
 
 /** Information about the JDK used by the <code>java_*</code> rules. */
 @Immutable
-public final class JavaToolchainProvider {
+public final class JavaToolchainProvider extends StarlarkInfoWrapper {
 
   public static final StarlarkProviderWrapper<JavaToolchainProvider> PROVIDER = new Provider();
 
-  private final StarlarkInfo underlying;
-
   private JavaToolchainProvider(StarlarkInfo underlying) {
-    this.underlying = underlying;
+    super(underlying);
   }
 
   @Override
@@ -126,7 +124,7 @@ public final class JavaToolchainProvider {
 
   /** Returns the target Java bootclasspath. */
   public BootClassPathInfo getBootclasspath() throws RuleErrorException {
-    return getUnderlyingValue("_bootclasspath_info", BootClassPathInfo.class);
+    return BootClassPathInfo.PROVIDER.wrap(getUnderlyingValue("_bootclasspath_info", Info.class));
   }
 
   /** Returns the {@link Artifact}s of compilation tools. */
@@ -266,18 +264,6 @@ public final class JavaToolchainProvider {
     return JavaHelper.tokenizeJavaOptions(getCompatibleJavacOptions(key));
   }
 
-  /** Returns the list of default options for the java compiler. */
-  public NestedSet<String> getJavacOptions(RuleContext ruleContext) throws RuleErrorException {
-    NestedSetBuilder<String> result = NestedSetBuilder.naiveLinkOrder();
-    result.addTransitive(javacOptions());
-    if (ruleContext != null) {
-      // TODO(b/78512644): require ruleContext to be non-null after java_common.default_javac_opts
-      // is turned down
-      result.addTransitive(ruleContext.getFragment(JavaConfiguration.class).getDefaultJavacFlags());
-    }
-    return result.build();
-  }
-
   private NestedSet<String> javacOptions() throws RuleErrorException {
     return getUnderlyingNestedSet("_javacopts", String.class);
   }
@@ -335,36 +321,6 @@ public final class JavaToolchainProvider {
 
   public JavaRuntimeInfo getJavaRuntime() throws RuleErrorException {
     return JavaRuntimeInfo.PROVIDER.wrap(getUnderlyingValue("java_runtime", Info.class));
-  }
-
-  private <T> T getUnderlyingValue(String key, Class<T> type) throws RuleErrorException {
-    if (underlying.getValue(key) == Starlark.NONE) {
-      return null;
-    } else {
-      try {
-        return underlying.getValue(key, type);
-      } catch (EvalException e) {
-        throw new RuleErrorException(e);
-      }
-    }
-  }
-
-  private <T> NestedSet<T> getUnderlyingNestedSet(String key, Class<T> type)
-      throws RuleErrorException {
-    try {
-      return Depset.noneableCast(underlying.getValue(key), type, key);
-    } catch (EvalException e) {
-      throw new RuleErrorException(e);
-    }
-  }
-
-  private <T> Sequence<T> getUnderlyingSequence(String key, Class<T> type)
-      throws RuleErrorException {
-    try {
-      return Sequence.noneableCast(underlying.getValue(key), type, key);
-    } catch (EvalException e) {
-      throw new RuleErrorException(e);
-    }
   }
 
   @AutoValue

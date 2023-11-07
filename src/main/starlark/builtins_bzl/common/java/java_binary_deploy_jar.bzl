@@ -19,12 +19,22 @@ the generating actions, so that the runfiles symlink tree is staged for the depl
 """
 
 load(":common/cc/cc_helper.bzl", "cc_helper")
-load(":common/cc/semantics.bzl", cc_semantics = "semantics")
 load(":common/java/java_common.bzl", "java_common")
 load(":common/java/java_helper.bzl", "helper")
 load(":common/java/java_semantics.bzl", "semantics")
 
 InstrumentedFilesInfo = _builtins.toplevel.InstrumentedFilesInfo
+
+def _stamping_enabled(ctx, stamp):
+    if ctx.configuration.is_tool_configuration():
+        stamp = 0
+    return (stamp == 1) or (stamp == -1 and ctx.configuration.stamp_binaries())
+
+def get_build_info(ctx, stamp):
+    if _stamping_enabled(ctx, stamp):
+        return ctx.attr._build_info_translator[OutputGroupInfo].non_redacted_build_info_files.to_list()
+    else:
+        return ctx.attr._build_info_translator[OutputGroupInfo].redacted_build_info_files.to_list()
 
 def create_deploy_archives(
         ctx,
@@ -261,7 +271,12 @@ def _implicit_outputs(binary):
         "unstrippeddeployjar": "%s_deploy.jar.unstripped" % binary_name,
     }
 
-def make_deploy_jars_rule(implementation, *, create_executable = True, extra_toolchains = []):
+def make_deploy_jars_rule(
+        implementation,
+        *,
+        create_executable = True,
+        extra_attrs = {},
+        extra_toolchains = []):
     """Creates the deploy jar auxiliary rule for java_binary
 
     Args:
@@ -285,12 +300,11 @@ def make_deploy_jars_rule(implementation, *, create_executable = True, extra_too
                 default = semantics.JAVA_TOOLCHAIN_LABEL,
                 providers = [java_common.JavaToolchainInfo],
             ),
-            "_cc_toolchain": attr.label(default = "@" + cc_semantics.get_repo() + "//tools/cpp:current_cc_toolchain"),
             "_java_toolchain_type": attr.label(default = semantics.JAVA_TOOLCHAIN_TYPE),
             "_build_info_translator": attr.label(
                 default = semantics.BUILD_INFO_TRANSLATOR_LABEL,
             ),
-        },
+        } | extra_attrs,
         outputs = _implicit_outputs,
         fragments = ["java"],
         toolchains = toolchains,

@@ -14,6 +14,7 @@
 
 """ Utilities for Java compilation support in Starlark. """
 
+load(":common/java/boot_class_path_info.bzl", "BootClassPathInfo")
 load(":common/java/java_common_internal_for_builtins.bzl", "compile", "run_ijar")
 load(":common/java/java_helper.bzl", "helper")
 load(
@@ -163,6 +164,7 @@ def _pack_sources(
         mnemonic = "JavaSourceJar",
     )
 
+# TODO: b/78512644 - migrate callers to passing explicit javacopts or using custom toolchains, and delete
 def _default_javac_opts(java_toolchain):
     """Experimental! Get default javacopts from a java toolchain
 
@@ -172,7 +174,7 @@ def _default_javac_opts(java_toolchain):
     Returns:
         ([str]) A list of javac options
     """
-    return _java_common_internal.default_javac_opts(java_toolchain = java_toolchain)
+    return java_toolchain._javacopts_list
 
 # temporary for migration
 def _default_javac_opts_depset(java_toolchain):
@@ -184,10 +186,7 @@ def _default_javac_opts_depset(java_toolchain):
     Returns:
         (depset[str]) A depset of javac options that should be tokenized before passing to javac
     """
-    return _java_common_internal.default_javac_opts(
-        java_toolchain = java_toolchain,
-        as_depset = True,
-    )
+    return java_toolchain._javacopts
 
 def _merge(providers):
     """Merges the given providers into a single JavaInfo.
@@ -302,7 +301,7 @@ def _make_java_common():
         "JavaPluginInfo": JavaPluginInfo,
         "JavaToolchainInfo": JavaToolchainInfo,
         "JavaRuntimeInfo": JavaRuntimeInfo,
-        "BootClassPathInfo": _java_common_internal.BootClassPathInfo,
+        "BootClassPathInfo": BootClassPathInfo,
         "JavaRuntimeClasspathInfo": JavaRuntimeClasspathInfo,
     }
     if _java_common_internal._google_legacy_api_enabled():

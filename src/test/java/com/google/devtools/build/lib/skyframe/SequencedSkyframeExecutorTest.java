@@ -116,6 +116,7 @@ import com.google.devtools.build.lib.skyframe.TopLevelStatusEvents.TopLevelTarge
 import com.google.devtools.build.lib.skyframe.serialization.DeserializationContext;
 import com.google.devtools.build.lib.skyframe.serialization.ObjectCodec;
 import com.google.devtools.build.lib.skyframe.serialization.SerializationContext;
+import com.google.devtools.build.lib.skyframe.serialization.VisibleForSerialization;
 import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec;
 import com.google.devtools.build.lib.testutil.MoreAsserts;
 import com.google.devtools.build.lib.testutil.TestUtils;
@@ -1232,7 +1233,7 @@ public final class SequencedSkyframeExecutorTest extends BuildViewTestCase {
   /** Dummy action that creates a tree output. */
   // AutoCodec because the superclass has a WrappedRunnable inside it.
   @AutoCodec
-  @AutoCodec.VisibleForSerialization
+  @VisibleForSerialization
   static class TreeArtifactAction extends TestAction {
     @SuppressWarnings("unused") // Only needed for serialization.
     private final SpecialArtifact output;
@@ -1448,11 +1449,6 @@ public final class SequencedSkyframeExecutorTest extends BuildViewTestCase {
     @Override
     public NestedSet<Artifact> getMandatoryInputs() {
       return NestedSetBuilder.emptySet(Order.STABLE_ORDER);
-    }
-
-    @Override
-    public boolean shouldReportPathPrefixConflict(ActionAnalysisMetadata action) {
-      return this != action;
     }
 
     @Override
@@ -2664,10 +2660,13 @@ public final class SequencedSkyframeExecutorTest extends BuildViewTestCase {
 
   @Test
   public void rewindingPrerequisites(
-      @TestParameter boolean trackIncrementalState, @TestParameter boolean useActionCache)
+      @TestParameter boolean trackIncrementalState, @TestParameter boolean skymeldEnabled)
       throws Exception {
     initializeSkyframeExecutor();
-    options.parse("--rewind_lost_inputs", "--use_action_cache=" + useActionCache);
+    options.parse(
+        "--rewind_lost_inputs",
+        "--experimental_merged_skyframe_analysis_execution=" + skymeldEnabled);
+    skyframeExecutor.setMergedSkyframeAnalysisExecutionSupplier(() -> skymeldEnabled);
 
     skyframeExecutor.setActive(false);
     skyframeExecutor.decideKeepIncrementalState(
@@ -2679,7 +2678,7 @@ public final class SequencedSkyframeExecutorTest extends BuildViewTestCase {
         reporter);
     skyframeExecutor.setActive(true);
 
-    if (useActionCache) {
+    if (skymeldEnabled) {
       AbruptExitException e = assertThrows(AbruptExitException.class, this::syncSkyframeExecutor);
       assertThat(e.getDetailedExitCode().getFailureDetail().getActionRewinding().getCode())
           .isEqualTo(ActionRewinding.Code.REWIND_LOST_INPUTS_PREREQ_UNMET);

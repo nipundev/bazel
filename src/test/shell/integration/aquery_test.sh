@@ -243,6 +243,34 @@ EOF
   assert_not_contains "Outputs: \[" output
 }
 
+function test_aquery_include_scheduling_dependencies() {
+  local pkg="${FUNCNAME[0]}"
+  mkdir -p "$pkg" || fail "mkdir -p $pkg"
+  cat > "$pkg/BUILD" <<'EOF'
+cc_binary(name="b", srcs=["b.cc"], deps=[":l"])
+cc_library(name="l", hdrs=["library_header.h"])
+EOF
+
+  bazel aquery \
+    --include_artifacts \
+    --include_scheduling_dependencies \
+    "mnemonic(CppCompile,//$pkg:b)" > output 2> "$TEST_log" \
+    || fail "Expected success"
+  cat output >> "$TEST_log"
+
+  assert_contains "SchedulingDependencies:.*library_header.h" output
+
+  bazel aquery \
+    --include_artifacts \
+    --include_scheduling_dependencies \
+    --output=jsonproto \
+    "mnemonic(CppCompile,//$pkg:b)" > output 2> "$TEST_log" \
+    || fail "Expected success"
+  cat output >> "$TEST_log"
+  assert_contains "library_header.h" output
+}
+
+
 function test_aquery_starlark_env() {
   local pkg="${FUNCNAME[0]}"
   mkdir -p "$pkg" || fail "mkdir -p $pkg"
@@ -1215,14 +1243,14 @@ EOF
 
   bazel clean
 
-  bazel aquery --output=textproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=textproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
   assert_not_contains "actions" output
 
-  bazel build --nobuild "//$pkg:foo"
+  bazel build --noenable_bzlmod --nobuild "//$pkg:foo"
 
-  bazel aquery --output=textproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=textproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
 
@@ -1251,9 +1279,9 @@ EOF
   QUERY="inputs('.*matching_in.java', outputs('.*matching_out', mnemonic('Genrule')))"
 
   bazel clean
-  bazel build --nobuild "//$pkg:foo"
+  bazel build --noenable_bzlmod --nobuild "//$pkg:foo"
 
-  bazel aquery --output=textproto --skyframe_state ${QUERY} > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=textproto --skyframe_state ${QUERY} > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
 
@@ -1273,14 +1301,14 @@ EOF
 
   bazel clean
 
-  bazel aquery --output=textproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=textproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
   assert_not_contains "actions" output
 
-  bazel build --nobuild "//$pkg:foo"
+  bazel build --noenable_bzlmod --nobuild "//$pkg:foo"
 
-  bazel aquery --output=textproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=textproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
 
@@ -1304,14 +1332,14 @@ EOF
 
   bazel clean
 
-  bazel aquery --output=jsonproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=jsonproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
   assert_not_contains "actions" output
 
-  bazel build --nobuild "//$pkg:foo"
+  bazel build --noenable_bzlmod --nobuild "//$pkg:foo"
 
-  bazel aquery --output=jsonproto --skyframe_state > output 2> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=jsonproto --skyframe_state > output 2> "$TEST_log" \
     || fail "Expected success"
   cat output >> "$TEST_log"
 
@@ -1332,7 +1360,7 @@ EOF
 
   bazel clean
 
-  bazel aquery --output=text --skyframe_state &> "$TEST_log" \
+  bazel aquery --noenable_bzlmod --output=text --skyframe_state &> "$TEST_log" \
     && fail "Expected failure"
   expect_log "--skyframe_state must be used with --output=proto\|textproto\|jsonproto. Invalid aquery output format: text"
 }

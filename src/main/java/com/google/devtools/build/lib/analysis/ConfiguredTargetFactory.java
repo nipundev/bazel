@@ -51,7 +51,6 @@ import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.packages.AdvertisedProviderSet;
 import com.google.devtools.build.lib.packages.Aspect;
-import com.google.devtools.build.lib.packages.Attribute;
 import com.google.devtools.build.lib.packages.ConfigurationFragmentPolicy;
 import com.google.devtools.build.lib.packages.ConfigurationFragmentPolicy.MissingFragmentPolicy;
 import com.google.devtools.build.lib.packages.EnvironmentGroup;
@@ -75,7 +74,6 @@ import com.google.devtools.build.lib.skyframe.AspectKeyCreator;
 import com.google.devtools.build.lib.skyframe.ConfiguredTargetAndData;
 import com.google.devtools.build.lib.skyframe.ConfiguredTargetKey;
 import com.google.devtools.build.lib.util.OrderedSetMultimap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -308,7 +306,7 @@ public final class ConfiguredTargetFactory {
             .setActionOwnerSymbol(configuredTargetKey)
             .setMutability(Mutability.create("configured target"))
             .setVisibility(convertVisibility(prerequisiteMap, env.getEventHandler(), rule))
-            .setPrerequisites(transformPrerequisiteMap(prerequisiteMap))
+            .setPrerequisites(removeToolchainDeps(prerequisiteMap))
             .setConfigConditions(configConditions)
             .setToolchainContexts(toolchainContexts)
             .setExecGroupCollectionBuilder(execGroupCollectionBuilder)
@@ -358,13 +356,22 @@ public final class ConfiguredTargetFactory {
       final ConfiguredTarget target;
 
       if (ruleClass.isStarlark()) {
+        if (ruleClass.getRuleClassType().equals(RuleClass.Builder.RuleClassType.WORKSPACE)) {
+          ruleContext.ruleError(
+              "Found reference to a workspace rule in a context where a build"
+                  + " rule was expected; probably a reference to a target in that external"
+                  + " repository, properly specified as @reponame//path/to/package:target,"
+                  + " should have been specified by the requesting rule.");
+          return erroredConfiguredTarget(ruleContext, null);
+        }
+
         final Object rawProviders;
         final boolean isDefaultExecutableCreated;
         @Nullable final RequiredConfigFragmentsProvider requiredConfigFragmentsProvider;
         try {
           ruleContext.initStarlarkRuleContext();
           // TODO(bazel-team): maybe merge with RuleConfiguredTargetBuilder?
-          rawProviders = StarlarkRuleConfiguredTargetUtil.evalRule(ruleContext);
+          rawProviders = StarlarkRuleConfiguredTargetUtil.evalRule(ruleContext, ruleClass);
         } finally {
           // TODO(b/268525292): isDefaultExecutableCreated is set to True when
           // ctx.outputs.executable
@@ -520,15 +527,16 @@ public final class ConfiguredTargetFactory {
   }
 
   @VisibleForTesting
-  public static OrderedSetMultimap<Attribute, ConfiguredTargetAndData> transformPrerequisiteMap(
+  public static OrderedSetMultimap<DependencyKind, ConfiguredTargetAndData> removeToolchainDeps(
       OrderedSetMultimap<DependencyKind, ConfiguredTargetAndData> map) {
-    OrderedSetMultimap<Attribute, ConfiguredTargetAndData> result = OrderedSetMultimap.create();
+    OrderedSetMultimap<DependencyKind, ConfiguredTargetAndData> result =
+        OrderedSetMultimap.create();
+
     for (Map.Entry<DependencyKind, ConfiguredTargetAndData> entry : map.entries()) {
       if (DependencyKind.isToolchain(entry.getKey())) {
         continue;
       }
-      Attribute attribute = entry.getKey().getAttribute();
-      result.put(attribute, entry.getValue());
+      result.put(entry.getKey(), entry.getValue());
     }
 
     return result;
@@ -564,8 +572,7 @@ public final class ConfiguredTargetFactory {
             .setMutability(Mutability.create("aspect"))
             .setVisibility(
                 convertVisibility(prerequisiteMap, env.getEventHandler(), associatedTarget))
-            .setPrerequisites(transformPrerequisiteMap(prerequisiteMap))
-            .setAspectAttributes(mergeAspectAttributes(aspectPath))
+            .setPrerequisites(removeToolchainDeps(prerequisiteMap))
             .setConfigConditions(configConditions)
             .setToolchainContexts(toolchainContexts)
             .setExecGroupCollectionBuilder(execGroupCollectionBuilder)
@@ -675,25 +682,6 @@ public final class ConfiguredTargetFactory {
       // on one specific failure with poor messaging. By returning null, the caller can
       // inspect ruleContext for multiple errors and output thorough messaging on each.
       return null;
-    }
-  }
-
-  private static ImmutableMap<String, Attribute> mergeAspectAttributes(
-      ImmutableList<Aspect> aspectPath) {
-    if (aspectPath.isEmpty()) {
-      return ImmutableMap.of();
-    } else if (aspectPath.size() == 1) {
-      return aspectPath.get(0).getDefinition().getAttributes();
-    } else {
-      LinkedHashMap<String, Attribute> aspectAttributes = new LinkedHashMap<>();
-      for (Aspect underlyingAspect : aspectPath) {
-        ImmutableMap<String, Attribute> currentAttributes =
-            underlyingAspect.getDefinition().getAttributes();
-        for (Map.Entry<String, Attribute> kv : currentAttributes.entrySet()) {
-          aspectAttributes.putIfAbsent(kv.getKey(), kv.getValue());
-        }
-      }
-      return ImmutableMap.copyOf(aspectAttributes);
     }
   }
 

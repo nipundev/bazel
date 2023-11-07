@@ -16,7 +16,7 @@
 
 load(":common/java/java_semantics.bzl", "semantics")
 
-def android_lint_action(ctx, source_files, source_jars, compilation_info):
+def _android_lint_action(ctx, source_files, source_jars, compilation_info):
     """
     Creates an action that runs Android lint against Java source files.
 
@@ -63,7 +63,8 @@ def android_lint_action(ctx, source_files, source_jars, compilation_info):
     executable = linter.tool.executable
     transitive_inputs = []
     if executable.extension != "jar":
-        tools = [linter.tool, linter.data]
+        tools = [linter.tool]
+        transitive_inputs.append(linter.data)
         args_list = [args]
     else:
         jvm_args = ctx.actions.args()
@@ -71,7 +72,8 @@ def android_lint_action(ctx, source_files, source_jars, compilation_info):
         jvm_args.add_all(linter.jvm_opts)
         jvm_args.add("-jar", executable)
         executable = java_runtime.java_executable_exec_path
-        tools = [java_runtime.files, linter.tool.executable, linter.data]
+        tools = [java_runtime.files, linter.tool.executable]
+        transitive_inputs.append(linter.data)
         args_list = [jvm_args, args]
 
     classpath = compilation_info.compilation_classpath
@@ -125,10 +127,14 @@ def android_lint_action(ctx, source_files, source_jars, compilation_info):
         tools = tools,
         arguments = args_list,
         execution_requirements = {"supports-workers": "1"},
-        toolchain = semantics.JAVA_TOOLCHAIN_TYPE,
         env = {
             # TODO(b/279025786): replace with setting --XskipJarVerification in AndroidLintRunner
             "ANDROID_LINT_SKIP_BYTECODE_VERIFIER": "true",
         },
     )
     return android_lint_out
+
+android_lint_subrule = subrule(
+    implementation = _android_lint_action,
+    toolchains = [semantics.JAVA_TOOLCHAIN_TYPE],
+)

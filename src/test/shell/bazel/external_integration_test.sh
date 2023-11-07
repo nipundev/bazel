@@ -673,7 +673,7 @@ EOF
   # But it is required after a clean.
   bazel clean --expunge || fail "Clean failed"
   bazel build --fetch=false //zoo:ball-pit >& $TEST_log && fail "Expected build to fail"
-  expect_log "bazel fetch //..."
+  expect_log "fetching repositories is disabled"
 }
 
 function test_prefix_stripping_tar_gz() {
@@ -944,7 +944,23 @@ genrule(
 )
 EOF
   bazel build :foo &> "$TEST_log" && fail "Expected failure" || true
-  expect_log "no such package '@foo//'"
+  expect_log "No repository visible as '@foo' from main repository"
+}
+
+function test_bind_repo_mapping() {
+  cat >> $(create_workspace_with_default_repos WORKSPACE myws) <<'EOF'
+load('//:foo.bzl', 'foo')
+foo()
+bind(name='bar', actual='@myws//:something')
+EOF
+  cat > foo.bzl <<'EOF'
+def foo():
+  native.bind(name='foo', actual='@myws//:something')
+EOF
+  cat > BUILD <<'EOF'
+filegroup(name='something', visibility=["//visibility:public"])
+EOF
+  bazel build //external:foo //external:bar &> "$TEST_log" || fail "don't fail!"
 }
 
 function test_flip_flopping() {

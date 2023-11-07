@@ -812,7 +812,7 @@ public class JavaCommon {
     return javacOpts;
   }
 
-  public BootClassPathInfo getBootClasspath() {
+  public NestedSet<Artifact> getBootClasspath() {
     return classpathFragment.getBootClasspath();
   }
 
@@ -828,7 +828,7 @@ public class JavaCommon {
     return ruleContext;
   }
 
-  private JavaCompilationInfoProvider createCompilationInfoProvider() {
+  private JavaCompilationInfoProvider createCompilationInfoProvider() throws RuleErrorException {
     return new JavaCompilationInfoProvider.Builder()
         .setJavacOpts(javacOpts)
         .setBootClasspath(getBootClasspath())
