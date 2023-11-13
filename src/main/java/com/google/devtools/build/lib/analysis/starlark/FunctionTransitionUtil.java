@@ -30,6 +30,7 @@ import com.google.devtools.build.lib.analysis.config.BuildOptions;
 import com.google.devtools.build.lib.analysis.config.CoreOptions;
 import com.google.devtools.build.lib.analysis.config.FragmentOptions;
 import com.google.devtools.build.lib.analysis.config.OptionInfo;
+import com.google.devtools.build.lib.analysis.config.OptionsDiff;
 import com.google.devtools.build.lib.analysis.config.StarlarkDefinedConfigTransition;
 import com.google.devtools.build.lib.analysis.config.StarlarkDefinedConfigTransition.ValidationException;
 import com.google.devtools.build.lib.analysis.test.TestConfiguration.TestOptions;
@@ -143,10 +144,8 @@ public final class FunctionTransitionUtil {
       BuildOptions fromOptions, StarlarkDefinedConfigTransition starlarkTransition) {
     if (starlarkTransition == null
         || fromOptions.get(CoreOptions.class).starlarkExecConfig == null
-        || !fromOptions
-            .get(CoreOptions.class)
-            .starlarkExecConfig
-            .startsWith(starlarkTransition.parentLabel())) {
+        || !starlarkTransition.matchesExecConfigFlag(
+            fromOptions.get(CoreOptions.class).starlarkExecConfig)) {
       // Not an exec transition: the baseline options are just the input options.
       return fromOptions;
     }
@@ -470,7 +469,7 @@ public final class FunctionTransitionUtil {
     boolean isExecTransition =
         coreOptions.starlarkExecConfig != null
             && starlarkTransition != null
-            && coreOptions.starlarkExecConfig.startsWith(starlarkTransition.parentLabel());
+            && starlarkTransition.matchesExecConfigFlag(coreOptions.starlarkExecConfig);
 
     if (!isExecTransition
         && coreOptions.outputDirectoryNamingScheme.equals(
@@ -490,7 +489,7 @@ public final class FunctionTransitionUtil {
       return ImmutableSet.of();
     }
 
-    BuildOptions.OptionsDiff diff = BuildOptions.diff(toOptions, baselineOptions);
+    OptionsDiff diff = OptionsDiff.diff(toOptions, baselineOptions);
     Stream<String> diffNative =
         diff.getFirst().keySet().stream()
             .map(option -> COMMAND_LINE_OPTION_PREFIX + option.getOptionName());

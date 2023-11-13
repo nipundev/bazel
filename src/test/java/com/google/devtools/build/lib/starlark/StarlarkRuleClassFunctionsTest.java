@@ -99,7 +99,6 @@ import net.starlark.java.eval.Tuple;
 import net.starlark.java.syntax.FileOptions;
 import net.starlark.java.syntax.ParserInput;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
@@ -3110,7 +3109,6 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
   }
 
   @Test
-  @Ignore("TODO - b/298561048")
   public void initializer_failsCreatingAnotherRule() throws Exception {
     scratch.file(
         "initializer_testing/b.bzl",
@@ -3134,11 +3132,11 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     reporter.addHandler(ev.getEventCollector());
     getConfiguredTarget("//initializer_testing:my_target");
 
-    ev.assertContainsError("TODO");
+    ev.assertContainsError(
+        "A rule can only be instantiated in a BUILD file, or a macro invoked from a BUILD file");
   }
 
   @Test
-  @Ignore("TODO - b/298561048")
   public void initializer_failsWithExistingRules() throws Exception {
     scratch.file(
         "initializer_testing/b.bzl",
@@ -3162,7 +3160,7 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     reporter.addHandler(ev.getEventCollector());
     getConfiguredTarget("//initializer_testing:my_target");
 
-    ev.assertContainsError("TODO");
+    ev.assertContainsError("'native.existing_rules' cannot be called from an initializer");
   }
 
   @Test
@@ -4189,10 +4187,9 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
     Rule rule = getRuleContext(myTarget).getRule();
 
     assertNoEvents();
-    assertThat(
-            rule.getRuleClassObject().getExecutionPlatformConstraints().stream()
-                .map(Label::toString))
-        .containsExactly(constr1, constr2);
+    assertThat(rule.getRuleClassObject().getExecutionPlatformConstraints())
+        .containsExactly(
+            Label.parseCanonicalUnchecked(constr1), Label.parseCanonicalUnchecked(constr2));
   }
 
   @Test
@@ -4502,14 +4499,14 @@ public final class StarlarkRuleClassFunctionsTest extends BuildViewTestCase {
                 EvalException.class, () -> eval(module, "Label('@//foo:bar').workspace_name")))
         .hasMessageThat()
         .isEqualTo(
-            "'workspace_name' is not allowed on invalid Label @[unknown repo '' requested from"
-                + " @module~1.2.3]//foo:bar");
+            "'workspace_name' is not allowed on invalid Label @@[unknown repo '' requested from"
+                + " @@module~1.2.3]//foo:bar");
     assertThat(
             assertThrows(
                 EvalException.class, () -> eval(module, "Label('@//foo:bar').workspace_root")))
         .hasMessageThat()
         .isEqualTo(
-            "'workspace_root' is not allowed on invalid Label @[unknown repo '' requested from"
-                + " @module~1.2.3]//foo:bar");
+            "'workspace_root' is not allowed on invalid Label @@[unknown repo '' requested from"
+                + " @@module~1.2.3]//foo:bar");
   }
 }
