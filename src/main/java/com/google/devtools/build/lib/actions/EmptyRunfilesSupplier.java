@@ -14,7 +14,6 @@
 
 package com.google.devtools.build.lib.actions;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue.RunfileSymlinksMode;
@@ -35,7 +34,7 @@ public final class EmptyRunfilesSupplier implements RunfilesSupplier {
   private EmptyRunfilesSupplier() {}
 
   @Override
-  public NestedSet<Artifact> getArtifacts() {
+  public NestedSet<Artifact> getAllArtifacts() {
     return NestedSetBuilder.emptySet(Order.STABLE_ORDER);
   }
 
@@ -47,11 +46,6 @@ public final class EmptyRunfilesSupplier implements RunfilesSupplier {
   @Override
   public ImmutableMap<PathFragment, Map<PathFragment, Artifact>> getMappings() {
     return ImmutableMap.of();
-  }
-
-  @Override
-  public ImmutableList<Artifact> getManifests() {
-    return ImmutableList.of();
   }
 
   @Override

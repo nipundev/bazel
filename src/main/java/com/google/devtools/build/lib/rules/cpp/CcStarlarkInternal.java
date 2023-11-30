@@ -222,15 +222,12 @@ public class CcStarlarkInternal implements StarlarkValue {
         /* interfaceSoBuilder= */ attributes.getIfsoBuilder(),
         /* dwpFiles= */ attributes.getDwpFiles(),
         /* coverageFiles= */ attributes.getCoverage(),
-        /* libcLink= */ attributes.getLibc(),
-        /* targetLibcLink= */ attributes.getTargetLibc(),
         /* staticRuntimeLinkInputs= */ staticRuntimeLinkInputsSet,
         /* dynamicRuntimeLinkInputs= */ dynamicRuntimeLinkInputsSet,
         /* dynamicRuntimeSolibDir= */ dynamicRuntimeSolibDir,
         /* ccCompilationContext= */ ccCompilationContext,
         /* supportsParamFiles= */ attributes.isSupportsParamFiles(),
         /* supportsHeaderParsing= */ attributes.isSupportsHeaderParsing(),
-        /* buildOptions */ ruleContext.getRuleContext().getConfiguration().getOptions(),
         /* buildVariables= */ (CcToolchainVariables) vars,
         /* builtinIncludeFiles= */ Sequence.cast(
                 builtinIncludeFiles, Artifact.class, "builtin_include_files")
@@ -246,7 +243,8 @@ public class CcStarlarkInternal implements StarlarkValue {
         /* fdoContext= */ fdoContext,
         /* isToolConfiguration= */ isToolConfiguration,
         /* licensesProvider= */ attributes.getLicensesProvider(),
-        /* toolPaths= */ castDict(toolPathsDict),
+        /* toolPaths= */ ImmutableMap.copyOf(
+            Dict.cast(toolPathsDict, String.class, String.class, "tool_paths")),
         /* toolchainIdentifier= */ toolchainConfigInfo.getToolchainIdentifier(),
         /* compiler= */ toolchainConfigInfo.getCompiler(),
         /* abiGlibcVersion= */ toolchainConfigInfo.getAbiLibcVersion(),
@@ -414,12 +412,8 @@ public class CcStarlarkInternal implements StarlarkValue {
       parameters = {
         @Param(name = "ctx", positional = false, named = true),
       })
-  public CcCommon createCommon(StarlarkRuleContext starlarkRuleContext) throws EvalException {
-    try {
-      return new CcCommon(starlarkRuleContext.getRuleContext());
-    } catch (RuleErrorException e) {
-      throw new EvalException(e);
-    }
+  public CcCommon createCommon(StarlarkRuleContext starlarkRuleContext) {
+    return new CcCommon(starlarkRuleContext.getRuleContext());
   }
 
   @StarlarkMethod(name = "launcher_provider", documented = false, structField = true)

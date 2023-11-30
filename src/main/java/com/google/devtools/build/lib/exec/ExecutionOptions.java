@@ -303,7 +303,7 @@ public class ExecutionOptions extends OptionsBase {
               + " default, (\"HOST_CPUS\"), Bazel will query system configuration to estimate"
               + " the number of CPU cores available.",
       converter = CpuResourceConverter.class)
-  public float localCpuResources;
+  public double localCpuResources;
 
   @Option(
       name = "local_ram_resources",
@@ -317,7 +317,7 @@ public class ExecutionOptions extends OptionsBase {
               + " default, (\"HOST_RAM*.67\"), Bazel will query system configuration to estimate"
               + " the amount of RAM available and will use 67% of it.",
       converter = RamResourceConverter.class)
-  public float localRamResources;
+  public double localRamResources;
 
   @Option(
       name = "local_extra_resources",
@@ -333,8 +333,8 @@ public class ExecutionOptions extends OptionsBase {
               + "Tests can declare the amount of extra resources they need "
               + "by using a tag of the \"resources:<resoucename>:<amount>\" format. "
               + "Available CPU, RAM and resources cannot be set with this flag.",
-      converter = Converters.StringToFloatAssignmentConverter.class)
-  public List<Map.Entry<String, Float>> localExtraResources;
+      converter = Converters.StringToDoubleAssignmentConverter.class)
+  public List<Map.Entry<String, Double>> localExtraResources;
 
   @Option(
       name = "local_test_jobs",
@@ -399,7 +399,7 @@ public class ExecutionOptions extends OptionsBase {
       help =
           "Log the executed spawns into this file as delimited Spawn protos, according to"
               + " src/main/protobuf/spawn.proto. Related flags:"
-              + " --execution_log_json_file (text JSON format),"
+              + " --execution_log_json_file (text JSON format; mutually exclusive),"
               + " --execution_log_sort (whether to sort the execution log),"
               + " --subcommands (for displaying subcommands in terminal output).")
   public PathFragment executionLogBinaryFile;
@@ -414,7 +414,7 @@ public class ExecutionOptions extends OptionsBase {
       help =
           "Log the executed spawns into this file as a JSON representation of the delimited Spawn"
               + " protos, according to src/main/protobuf/spawn.proto. Related flags:"
-              + " --execution_log_binary_file (binary protobuf format),"
+              + " --execution_log_binary_file (binary protobuf format; mutually exclusive),"
               + " --execution_log_sort (whether to sort the execution log),"
               + " --subcommands (for displaying subcommands in terminal output).")
   public PathFragment executionLogJsonFile;

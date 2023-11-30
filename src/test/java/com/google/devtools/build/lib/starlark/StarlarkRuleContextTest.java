@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth8.assertThat;
 import static com.google.devtools.build.lib.packages.Attribute.attr;
 import static com.google.devtools.build.lib.packages.BuildType.LABEL_LIST;
 import static com.google.devtools.build.lib.packages.ExecGroup.DEFAULT_EXEC_GROUP_NAME;
+import static com.google.devtools.build.lib.rules.python.PythonTestUtils.getPyLoad;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.base.Joiner;
@@ -1742,6 +1743,7 @@ public final class StarlarkRuleContextTest extends BuildViewTestCase {
         ")");
     scratch.file(
         "test/BUILD",
+        getPyLoad("py_binary"),
         "load('//test:rule.bzl', 'starlark_rule')",
         "py_binary(name = 'lib', srcs = ['lib.py', 'lib2.py'])",
         "starlark_rule(name = 'foo', dep = ':lib')",
@@ -3519,6 +3521,11 @@ public final class StarlarkRuleContextTest extends BuildViewTestCase {
 
     setRuleContext(createRuleContext("@foo//bar:baz"));
     Object result = ev.eval("ruleContext.build_file_path");
+    assertThat(result).isEqualTo("bar/BUILD");
+
+    // The reason `build_file_path` should be deprecated. It's just another trivial knob on `ctx`.
+    // The results are always the same as `ctx.label.package + '/BUILD'`
+    result = ev.eval("ruleContext.label.package + '/BUILD'");
     assertThat(result).isEqualTo("bar/BUILD");
   }
 

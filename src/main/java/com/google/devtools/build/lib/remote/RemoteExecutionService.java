@@ -77,7 +77,6 @@ import com.google.devtools.build.lib.analysis.platform.PlatformUtils;
 import com.google.devtools.build.lib.buildtool.buildevent.BuildInterruptedEvent;
 import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.Reporter;
-import com.google.devtools.build.lib.exec.Protos.CacheSalt;
 import com.google.devtools.build.lib.exec.SpawnInputExpander.InputWalker;
 import com.google.devtools.build.lib.exec.SpawnRunner.SpawnExecutionContext;
 import com.google.devtools.build.lib.exec.local.LocalEnvProvider;
@@ -100,6 +99,7 @@ import com.google.devtools.build.lib.remote.common.RemoteExecutionClient;
 import com.google.devtools.build.lib.remote.common.RemotePathResolver;
 import com.google.devtools.build.lib.remote.merkletree.MerkleTree;
 import com.google.devtools.build.lib.remote.options.RemoteOptions;
+import com.google.devtools.build.lib.remote.salt.CacheSalt;
 import com.google.devtools.build.lib.remote.util.DigestUtil;
 import com.google.devtools.build.lib.remote.util.TempPathGenerator;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
@@ -1278,11 +1278,7 @@ public class RemoteExecutionService {
               && !metadata.directories.containsKey(localPath)
               && !metadata.symlinks.containsKey(localPath)) {
             throw new IOException(
-                "Invalid action cache entry "
-                    + action.getActionKey().getDigest().getHash()
-                    + ": expected output "
-                    + prettyPrint(output)
-                    + " does not exist.");
+                String.format("mandatory output %s was not created", prettyPrint(output)));
           }
         }
       }

@@ -79,7 +79,6 @@ import com.google.devtools.build.lib.packages.Target;
 import com.google.devtools.build.lib.packages.semantics.BuildLanguageOptions;
 import com.google.devtools.build.lib.profiler.memory.CurrentRuleTracker;
 import com.google.devtools.build.lib.skyframe.AspectKeyCreator.AspectKey;
-import com.google.devtools.build.lib.skyframe.BzlLoadFunction.BzlLoadFailedException;
 import com.google.devtools.build.lib.skyframe.SkyframeExecutor.BuildViewProvider;
 import com.google.devtools.build.lib.skyframe.config.BuildConfigurationKey;
 import com.google.devtools.build.lib.skyframe.toolchains.ToolchainException;
@@ -318,7 +317,8 @@ final class AspectFunction implements SkyFunction {
                 targetAndConfiguration.getConfiguration() == null
                     ? null
                     : targetAndConfiguration.getConfiguration().getOptions(),
-                (bzlKey) -> (BzlLoadValue) env.getValue(bzlKey));
+                (bzlKey) ->
+                    (BzlLoadValue) env.getValueOrThrow(bzlKey, BzlLoadFailedException.class));
         if (starlarkExecTransition == null) {
           return null; // Need Skyframe deps.
         }
@@ -381,7 +381,8 @@ final class AspectFunction implements SkyFunction {
           toolchainContexts,
           computeDependenciesState.execGroupCollectionBuilder,
           depValueMap,
-          computeDependenciesState.transitiveState);
+          computeDependenciesState.transitiveState,
+          starlarkExecTransition.orElse(null));
     } catch (DependencyEvaluationException e) {
       // TODO(bazel-team): consolidate all env.getListener().handle() calls in this method, like in
       // ConfiguredTargetFunction. This encourages clear, consistent user messages (ideally without
@@ -753,7 +754,8 @@ final class AspectFunction implements SkyFunction {
       @Nullable ToolchainCollection<ResolvedToolchainContext> toolchainContexts,
       @Nullable ExecGroupCollection.Builder execGroupCollectionBuilder,
       OrderedSetMultimap<DependencyKind, ConfiguredTargetAndData> directDeps,
-      TransitiveDependencyState transitiveState)
+      TransitiveDependencyState transitiveState,
+      StarlarkAttributeTransitionProvider starlarkExecTransition)
       throws AspectFunctionException, InterruptedException {
     // Should be successfully evaluated and cached from the loading phase.
     StarlarkBuiltinsValue starlarkBuiltinsValue =
@@ -793,7 +795,8 @@ final class AspectFunction implements SkyFunction {
                     execGroupCollectionBuilder,
                     configuration,
                     transitiveState.transitivePackages(),
-                    key);
+                    key,
+                    starlarkExecTransition);
       } catch (MissingDepException e) {
         Preconditions.checkState(env.valuesMissing());
         return null;

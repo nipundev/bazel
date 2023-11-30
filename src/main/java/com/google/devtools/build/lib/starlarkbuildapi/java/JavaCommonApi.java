@@ -695,10 +695,10 @@ public interface JavaCommonApi<
       throws EvalException, LabelSyntaxException;
 
   @StarlarkMethod(
-      name = "_incompatible_depset_for_java_output_source_jars",
+      name = "_incompatible_java_info_merge_runtime_module_flags",
       documented = false,
       useStarlarkThread = true)
-  boolean isDepsetForJavaOutputSourceJarsEnabled(StarlarkThread thread) throws EvalException;
+  boolean isJavaInfoMergeRuntimeModuleFlagsEnabled(StarlarkThread thread) throws EvalException;
 
   @StarlarkMethod(
       name = "wrap_java_info",

@@ -25,9 +25,9 @@ WORKSPACE_REPOS = {
         "strip_prefix": "rules_cc-0.0.9",
     },
     "rules_java": {
-        "archive": "rules_java-7.1.0.tar.gz",
-        "sha256": "a37a4e5f63ab82716e5dd6aeef988ed8461c7a00b8e936272262899f587cd4e1",
-        "urls": ["https://github.com/bazelbuild/rules_java/releases/download/7.1.0/rules_java-7.1.0.tar.gz"],
+        "archive": "rules_java-7.3.0.tar.gz",
+        "sha256": "8d2ae8941c8028eb826e4c83ad3a0acb73d3237861d9ce788a3a97d60ceac45b",
+        "urls": ["https://github.com/bazelbuild/rules_java/releases/download/7.3.0/rules_java-7.3.0.tar.gz"],
     },
     # Used in src/test/java/com/google/devtools/build/lib/blackbox/framework/blackbox.WORKSAPCE
     "rules_proto": {
@@ -37,9 +37,9 @@ WORKSPACE_REPOS = {
         "urls": ["https://github.com/bazelbuild/rules_proto/archive/refs/tags/5.3.0-21.7.tar.gz"],
     },
     "bazel_skylib": {
-        "archive": "bazel-skylib-1.4.1.tar.gz",
-        "sha256": "b8a1527901774180afc798aeb28c4634bdccf19c4d98e7bdd1ce79d1fe9aaad7",
-        "urls": ["https://github.com/bazelbuild/bazel-skylib/releases/download/1.4.1/bazel-skylib-1.4.1.tar.gz"],
+        "archive": "bazel-skylib-1.5.0.tar.gz",
+        "sha256": "cd55a062e763b9349921f0f5db8c3933288dc8ba4f76dd9416aac68acee3cb94",
+        "urls": ["https://github.com/bazelbuild/bazel-skylib/releases/download/1.5.0/bazel-skylib-1.5.0.tar.gz"],
     },
     "rules_license": {
         "archive": "rules_license-0.0.7.tar.gz",

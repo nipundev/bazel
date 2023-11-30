@@ -14,6 +14,7 @@
 package com.google.devtools.build.lib.exec;
 
 import build.bazel.remote.execution.v2.Platform;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.flogger.GoogleLogger;
 import com.google.common.hash.HashCode;
@@ -67,7 +68,7 @@ public class SpawnLogContext implements ActionContext {
   private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
 
   private final PathFragment execRoot;
-  private final MessageOutputStream executionLog;
+  private final MessageOutputStream<SpawnExec> executionLog;
   @Nullable private final ExecutionOptions executionOptions;
   @Nullable private final RemoteOptions remoteOptions;
   private final DigestHashFunction digestHashFunction;
@@ -75,7 +76,7 @@ public class SpawnLogContext implements ActionContext {
 
   public SpawnLogContext(
       PathFragment execRoot,
-      MessageOutputStream executionLog,
+      MessageOutputStream<SpawnExec> executionLog,
       @Nullable ExecutionOptions executionOptions,
       @Nullable RemoteOptions remoteOptions,
       DigestHashFunction digestHashFunction,
@@ -182,22 +183,17 @@ public class SpawnLogContext implements ActionContext {
     builder.setCacheable(Spawns.mayBeCached(spawn));
     builder.setRemoteCacheable(Spawns.mayBeCachedRemotely(spawn));
     builder.setExitCode(result.exitCode());
-    builder.setRemoteCacheHit(result.isCacheHit());
+    builder.setCacheHit(result.isCacheHit());
     builder.setRunner(result.getRunnerName());
 
     if (result.getDigest() != null) {
       builder.setDigest(result.getDigest());
     }
 
-    String progressMessage = spawn.getResourceOwner().getProgressMessage();
-    if (progressMessage != null) {
-      builder.setProgressMessage(progressMessage);
-    }
     builder.setMnemonic(spawn.getMnemonic());
-    builder.setWalltime(millisToProto(result.getMetrics().executionWallTimeInMs()));
 
     if (spawn.getTargetLabel() != null) {
-      builder.setTargetLabel(spawn.getTargetLabel());
+      builder.setTargetLabel(spawn.getTargetLabel().toString());
     }
 
     SpawnMetrics metrics = result.getMetrics();
@@ -249,7 +245,8 @@ public class SpawnLogContext implements ActionContext {
     }
   }
 
-  private static com.google.protobuf.Duration millisToProto(int t) {
+  @VisibleForTesting
+  static com.google.protobuf.Duration millisToProto(int t) {
     return Durations.fromMillis(t);
   }
 

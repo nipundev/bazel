@@ -30,24 +30,4 @@ public class SwiftCommandLineOptions extends FragmentOptions {
       effectTags = {OptionEffectTag.ACTION_COMMAND_LINES},
       help = "Additional options to pass to Swift compilation.")
   public List<String> copts;
-
-  @Option(
-      name = "host_swiftcopt",
-      allowMultiple = true,
-      defaultValue = "null",
-      documentationCategory = OptionDocumentationCategory.OUTPUT_PARAMETERS,
-      effectTags = {OptionEffectTag.ACTION_COMMAND_LINES, OptionEffectTag.AFFECTS_OUTPUTS},
-      help = "Additional options to pass to swiftc for exec tools.")
-  public List<String> hostSwiftcoptList;
-
-  @Override
-  public FragmentOptions getExec() {
-    SwiftCommandLineOptions exec = (SwiftCommandLineOptions) super.getExec();
-    exec.copts = this.hostSwiftcoptList;
-
-    // Save exec options in case of a further exec->host transition.
-    exec.hostSwiftcoptList = hostSwiftcoptList;
-
-    return exec;
-  }
 }

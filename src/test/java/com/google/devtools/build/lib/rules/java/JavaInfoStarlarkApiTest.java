@@ -850,6 +850,7 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
 
   @Test
   public void buildHelperCreateJavaInfoWithModuleFlags() throws Exception {
+    setBuildLanguageOptions("--noincompatible_java_info_merge_runtime_module_flags");
     ruleBuilder().build();
     scratch.file(
         "foo/BUILD",
@@ -907,6 +908,63 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
   }
 
   @Test
+  public void buildHelperCreateJavaInfoWithModuleFlagsIncompatibleMergeRuntime() throws Exception {
+    setBuildLanguageOptions("--incompatible_java_info_merge_runtime_module_flags");
+    ruleBuilder().build();
+    scratch.file(
+        "foo/BUILD",
+        "load(':extension.bzl', 'my_rule')",
+        "java_library(",
+        "    name = 'my_java_lib_direct',",
+        "    srcs = ['java/A.java'],",
+        "    add_exports = ['java.base/java.lang'],",
+        "    add_opens = ['java.base/java.lang'],",
+        ")",
+        "java_library(",
+        "    name = 'my_java_lib_runtime',",
+        "    srcs = ['java/A.java'],",
+        "    add_opens = ['java.base/java.util'],",
+        ")",
+        "java_library(",
+        "    name = 'my_java_lib_exports',",
+        "    srcs = ['java/A.java'],",
+        "    add_opens = ['java.base/java.math'],",
+        ")",
+        "my_rule(",
+        "    name = 'my_starlark_rule',",
+        "    dep = [':my_java_lib_direct'],",
+        "    dep_runtime = [':my_java_lib_runtime'],",
+        "    dep_exports = [':my_java_lib_exports'],",
+        "    output_jar = 'my_starlark_rule_lib.jar',",
+        "    add_exports = ['java.base/java.lang.invoke'],",
+        ")");
+    assertNoEvents();
+
+    JavaModuleFlagsProvider ruleOutputs =
+        fetchJavaInfo().getProvider(JavaModuleFlagsProvider.class);
+
+    if (analysisMock.isThisBazel()) {
+      assertThat(ruleOutputs.toFlags())
+          .containsExactly(
+              "--add-exports=java.base/java.lang=ALL-UNNAMED",
+              "--add-exports=java.base/java.lang.invoke=ALL-UNNAMED",
+              "--add-opens=java.base/java.util=ALL-UNNAMED",
+              "--add-opens=java.base/java.math=ALL-UNNAMED",
+              "--add-opens=java.base/java.lang=ALL-UNNAMED")
+          .inOrder();
+    } else {
+      // add_exports/add_opens ignored in JavaInfo constructor in #newJavaInfo below
+      assertThat(ruleOutputs.toFlags())
+          .containsExactly(
+              "--add-exports=java.base/java.lang=ALL-UNNAMED",
+              "--add-opens=java.base/java.util=ALL-UNNAMED",
+              "--add-opens=java.base/java.math=ALL-UNNAMED",
+              "--add-opens=java.base/java.lang=ALL-UNNAMED")
+          .inOrder();
+    }
+  }
+
+  @Test
   public void starlarkJavaOutputsCanBeAddedToJavaPluginInfo() throws Exception {
     Artifact classJar = createArtifact("foo.jar");
     StarlarkInfo starlarkJavaOutput =
@@ -926,38 +984,7 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
   }
 
   @Test
-  public void javaOutputSourceJarsReturnsListWithIncompatibleFlagDisabled() throws Exception {
-    setBuildLanguageOptions("--noincompatible_depset_for_java_output_source_jars");
-    scratch.file(
-        "foo/extension.bzl",
-        "MyInfo = provider()",
-        "",
-        "def _impl(ctx):",
-        "  return MyInfo(source_jars = ctx.attr.dep[JavaInfo].java_outputs[0].source_jars)",
-        "",
-        "my_rule = rule(",
-        "  implementation = _impl,",
-        "  attrs = {'dep' : attr.label()}",
-        ")");
-    scratch.file(
-        "foo/BUILD",
-        "load(':extension.bzl', 'my_rule')",
-        "java_library(name = 'lib')",
-        "my_rule(name = 'my_starlark_rule', dep = ':lib')");
-
-    ConfiguredTarget target = getConfiguredTarget("//foo:my_starlark_rule");
-
-    StarlarkInfo info =
-        (StarlarkInfo)
-            target.get(
-                new StarlarkProvider.Key(Label.parseCanonical("//foo:extension.bzl"), "MyInfo"));
-    assertThat(info).isNotNull();
-    assertThat(info.getValue("source_jars")).isInstanceOf(StarlarkList.class);
-  }
-
-  @Test
   public void javaOutputSourceJarsReturnsDepsetWithIncompatibleFlagEnabled() throws Exception {
-    setBuildLanguageOptions("--incompatible_depset_for_java_output_source_jars");
     scratch.file(
         "foo/extension.bzl",
         "MyInfo = provider()",
@@ -1052,7 +1079,10 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
                 "compilation_info",
                 makeStruct(
                     ImmutableMap.of(
-                        "javac_options", StarlarkList.immutableOf("opt1", "opt2"),
+                        "javac_options",
+                            Depset.of(
+                                String.class,
+                                NestedSetBuilder.create(Order.NAIVE_LINK_ORDER, "opt1", "opt2")),
                         "boot_classpath", StarlarkList.immutableOf(createArtifact("cp.jar")))))
             .buildOrThrow();
     StarlarkInfo starlarkInfo = makeStruct(fields);
@@ -1061,7 +1091,7 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
 
     assertThat(javaInfo).isNotNull();
     assertThat(javaInfo.getCompilationInfoProvider()).isNotNull();
-    assertThat(javaInfo.getCompilationInfoProvider().getJavacOpts())
+    assertThat(javaInfo.getCompilationInfoProvider().getJavacOptsList())
         .containsExactly("opt1", "opt2");
     assertThat(javaInfo.getCompilationInfoProvider().getBootClasspathList()).hasSize(1);
     assertThat(prettyArtifactNames(javaInfo.getCompilationInfoProvider().getBootClasspathList()))
@@ -1080,13 +1110,16 @@ public class JavaInfoStarlarkApiTest extends BuildViewTestCase {
             ImmutableMap.of(
                 "compilation_classpath", Depset.of(Artifact.class, compilationClasspath),
                 "runtime_classpath", Depset.of(Artifact.class, runtimeClasspath),
-                "javac_options", StarlarkList.immutableOf("opt1", "opt2"),
+                "javac_options",
+                    Depset.of(
+                        String.class,
+                        NestedSetBuilder.create(Order.NAIVE_LINK_ORDER, "opt1", "opt2")),
                 "boot_classpath", StarlarkList.immutableOf(bootClasspathArtifact)));
     JavaCompilationInfoProvider nativeCompilationInfo =
         new JavaCompilationInfoProvider.Builder()
             .setCompilationClasspath(compilationClasspath)
             .setRuntimeClasspath(runtimeClasspath)
-            .setJavacOpts(ImmutableList.of("opt1", "opt2"))
+            .setJavacOpts(NestedSetBuilder.create(Order.NAIVE_LINK_ORDER, "opt1", "opt2"))
             .setBootClasspath(
                 NestedSetBuilder.create(Order.NAIVE_LINK_ORDER, bootClasspathArtifact))
             .build();

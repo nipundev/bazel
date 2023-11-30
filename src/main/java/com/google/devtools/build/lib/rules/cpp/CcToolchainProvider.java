@@ -37,6 +37,7 @@ import com.google.devtools.build.lib.concurrent.ThreadSafety.Immutable;
 import com.google.devtools.build.lib.packages.BuiltinProvider;
 import com.google.devtools.build.lib.packages.NativeInfo;
 import com.google.devtools.build.lib.packages.RuleClass.ConfiguredTargetFactory.RuleErrorException;
+import com.google.devtools.build.lib.rules.apple.AppleCommandLineOptions;
 import com.google.devtools.build.lib.rules.apple.AppleConfiguration;
 import com.google.devtools.build.lib.rules.apple.ApplePlatform;
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.FeatureConfiguration;
@@ -84,15 +85,12 @@ public final class CcToolchainProvider extends NativeInfo
   private final Artifact interfaceSoBuilder;
   private final NestedSet<Artifact> dwpFiles;
   private final NestedSet<Artifact> coverageFiles;
-  private final NestedSet<Artifact> libcLink;
-  private final NestedSet<Artifact> targetLibcLink;
   @Nullable private final NestedSet<Artifact> staticRuntimeLinkInputs;
   @Nullable private final NestedSet<Artifact> dynamicRuntimeLinkInputs;
   private final PathFragment dynamicRuntimeSolibDir;
   private final CcInfo ccInfo;
   private final boolean supportsParamFiles;
   private final boolean supportsHeaderParsing;
-  private final BuildOptions buildOptions;
   private final CcToolchainVariables buildVariables;
   private final ImmutableList<Artifact> builtinIncludeFiles;
   private final ImmutableList<Artifact> targetBuiltinIncludeFiles;
@@ -102,7 +100,7 @@ public final class CcToolchainProvider extends NativeInfo
   @Nullable private final PathFragment sysroot;
   private final PathFragment targetSysroot;
   private final boolean isToolConfiguration;
-  private final ImmutableMap<String, PathFragment> toolPaths;
+  private final ImmutableMap<String, String> toolPaths;
   private final CcToolchainFeatures toolchainFeatures;
   private final String toolchainIdentifier;
   private final String compiler;
@@ -158,15 +156,12 @@ public final class CcToolchainProvider extends NativeInfo
       Artifact interfaceSoBuilder,
       NestedSet<Artifact> dwpFiles,
       NestedSet<Artifact> coverageFiles,
-      NestedSet<Artifact> libcLink,
-      NestedSet<Artifact> targetLibcLink,
       NestedSet<Artifact> staticRuntimeLinkInputs,
       NestedSet<Artifact> dynamicRuntimeLinkInputs,
       PathFragment dynamicRuntimeSolibDir,
       CcCompilationContext ccCompilationContext,
       boolean supportsParamFiles,
       boolean supportsHeaderParsing,
-      BuildOptions buildOptions,
       CcToolchainVariables buildVariables,
       ImmutableList<Artifact> builtinIncludeFiles,
       ImmutableList<Artifact> targetBuiltinIncludeFiles,
@@ -178,7 +173,7 @@ public final class CcToolchainProvider extends NativeInfo
       FdoContext fdoContext,
       boolean isToolConfiguration,
       LicensesProvider licensesProvider,
-      ImmutableMap<String, PathFragment> toolPaths,
+      ImmutableMap<String, String> toolPaths,
       String toolchainIdentifier,
       String compiler,
       String abiGlibcVersion,
@@ -220,8 +215,6 @@ public final class CcToolchainProvider extends NativeInfo
     this.interfaceSoBuilder = interfaceSoBuilder;
     this.dwpFiles = Preconditions.checkNotNull(dwpFiles);
     this.coverageFiles = Preconditions.checkNotNull(coverageFiles);
-    this.libcLink = Preconditions.checkNotNull(libcLink);
-    this.targetLibcLink = Preconditions.checkNotNull(targetLibcLink);
     this.staticRuntimeLinkInputs = staticRuntimeLinkInputs;
     this.dynamicRuntimeLinkInputs = dynamicRuntimeLinkInputs;
     this.dynamicRuntimeSolibDir = Preconditions.checkNotNull(dynamicRuntimeSolibDir);
@@ -231,7 +224,6 @@ public final class CcToolchainProvider extends NativeInfo
             .build();
     this.supportsParamFiles = supportsParamFiles;
     this.supportsHeaderParsing = supportsHeaderParsing;
-    this.buildOptions = buildOptions;
     this.buildVariables = buildVariables;
     this.builtinIncludeFiles = builtinIncludeFiles;
     this.targetBuiltinIncludeFiles = targetBuiltinIncludeFiles;
@@ -300,7 +292,7 @@ public final class CcToolchainProvider extends NativeInfo
    *
    * @return true if this rule's compilations should apply -fPIC, false otherwise
    */
-  public boolean usePicForDynamicLibraries(
+  public static boolean usePicForDynamicLibraries(
       CppConfiguration cppConfiguration, FeatureConfiguration featureConfiguration) {
     return cppConfiguration.forcePic()
         || featureConfiguration.isEnabled(CppRuleClasses.SUPPORTS_PIC);
@@ -310,7 +302,7 @@ public final class CcToolchainProvider extends NativeInfo
    * Returns true if PER_OBJECT_DEBUG_INFO are specified and supported by the CROSSTOOL for the
    * build implied by the given configuration, toolchain and feature configuration.
    */
-  public boolean shouldCreatePerObjectDebugInfo(
+  public static boolean shouldCreatePerObjectDebugInfo(
       FeatureConfiguration featureConfiguration, CppConfiguration cppConfiguration) {
     return cppConfiguration.fissionIsActiveForCurrentCompilationMode()
         && featureConfiguration.isEnabled(CppRuleClasses.PER_OBJECT_DEBUG_INFO);
@@ -328,29 +320,31 @@ public final class CcToolchainProvider extends NativeInfo
    * It will run compiler's parser to ensure the header is self-contained. This is required for
    * layering_check to work.
    */
-  public boolean shouldProcessHeaders(
+  public static boolean shouldProcessHeaders(
       FeatureConfiguration featureConfiguration, CppConfiguration cppConfiguration) {
     return featureConfiguration.isEnabled(CppRuleClasses.PARSE_HEADERS);
   }
 
-  public void addGlobalMakeVariables(ImmutableMap.Builder<String, String> globalMakeEnvBuilder) {
+  public void addGlobalMakeVariables(
+      ImmutableMap<String, String> toolPaths,
+      ImmutableMap.Builder<String, String> globalMakeEnvBuilder) {
     ImmutableMap.Builder<String, String> result = ImmutableMap.builder();
 
     // hardcoded CC->gcc setting for unit tests
-    result.put("CC", getToolPathStringOrNull(Tool.GCC));
+    result.put("CC", getToolPathStringOrNull(toolPaths, Tool.GCC));
 
     // Make variables provided by crosstool/gcc compiler suite.
-    result.put("AR", getToolPathStringOrNull(Tool.AR));
-    result.put("NM", getToolPathStringOrNull(Tool.NM));
-    result.put("LD", getToolPathStringOrNull(Tool.LD));
-    String objcopyTool = getToolPathStringOrNull(Tool.OBJCOPY);
+    result.put("AR", getToolPathStringOrNull(toolPaths, Tool.AR));
+    result.put("NM", getToolPathStringOrNull(toolPaths, Tool.NM));
+    result.put("LD", getToolPathStringOrNull(toolPaths, Tool.LD));
+    String objcopyTool = getToolPathStringOrNull(toolPaths, Tool.OBJCOPY);
     if (objcopyTool != null) {
       // objcopy is optional in Crosstool
       result.put("OBJCOPY", objcopyTool);
     }
-    result.put("STRIP", getToolPathStringOrNull(Tool.STRIP));
+    result.put("STRIP", getToolPathStringOrNull(toolPaths, Tool.STRIP));
 
-    String gcovtool = getToolPathStringOrNull(Tool.GCOVTOOL);
+    String gcovtool = getToolPathStringOrNull(toolPaths, Tool.GCOVTOOL);
     if (gcovtool != null) {
       // gcov-tool is optional in Crosstool
       result.put("GCOVTOOL", gcovtool);
@@ -387,50 +381,44 @@ public final class CcToolchainProvider extends NativeInfo
   }
 
   /**
-   * Returns the path fragment that is either absolute or relative to the execution root that can be
+   * Returns the path String that is either absolute or relative to the execution root that can be
    * used to execute the given tool.
    *
    * @throws RuleErrorException when the tool is not specified by the toolchain.
    */
-  public PathFragment getToolPathFragment(
-      CppConfiguration.Tool tool, RuleErrorConsumer ruleErrorConsumer) throws RuleErrorException {
-    PathFragment toolPathFragment = getToolPathFragmentOrNull(tool);
-    if (toolPathFragment == null) {
+  public static String getToolPathString(
+      ImmutableMap<String, String> toolPaths,
+      CppConfiguration.Tool tool,
+      Label ccToolchainLabel,
+      String toolchainIdentifier,
+      RuleErrorConsumer ruleErrorConsumer)
+      throws RuleErrorException {
+    String toolPath = getToolPathStringOrNull(toolPaths, tool);
+    if (toolPath == null) {
       throw ruleErrorConsumer.throwWithRuleError(
           String.format(
               "cc_toolchain '%s' with identifier '%s' doesn't define a tool path for '%s'",
-              getCcToolchainLabel(), getToolchainIdentifier(), tool.getNamePart()));
+              ccToolchainLabel, toolchainIdentifier, tool.getNamePart()));
     }
-    return toolPathFragment;
+    return toolPath;
   }
 
   /**
-   * Returns the path fragment that is either absolute or relative to the execution root that can be
+   * Returns the path string that is either absolute or relative to the execution root that can be
    * used to execute the given tool.
    */
-  @Nullable
-  public String getToolPathStringOrNull(Tool tool) {
-    PathFragment toolPathFragment = getToolPathFragmentOrNull(tool);
-    return toolPathFragment == null ? null : toolPathFragment.getPathString();
-  }
-
-  @Nullable
-  @Override
-  public String getToolPathStringOrNoneForStarlark(String toolString, StarlarkThread thread)
-      throws EvalException {
-    CcModule.checkPrivateStarlarkificationAllowlist(thread);
-    Tool tool = Tool.valueOf(toolString);
-    PathFragment toolPathFragment = getToolPathFragmentOrNull(tool);
-    return toolPathFragment == null ? null : toolPathFragment.getPathString();
-  }
-
-  /**
-   * Returns the path fragment that is either absolute or relative to the execution root that can be
-   * used to execute the given tool.
-   */
-  @Nullable
-  public PathFragment getToolPathFragmentOrNull(CppConfiguration.Tool tool) {
+  public static String getToolPathStringOrNull(ImmutableMap<String, String> toolPaths, Tool tool) {
     return toolPaths.get(tool.getNamePart());
+  }
+
+  public ImmutableMap<String, String> getToolPaths() {
+    return toolPaths;
+  }
+
+  @Override
+  public Dict<String, String> getToolPathsForStarlark(StarlarkThread thread) throws EvalException {
+    CcModule.checkPrivateStarlarkificationAllowlist(thread);
+    return Dict.immutableCopyOf(getToolPaths());
   }
 
   @Override
@@ -450,7 +438,8 @@ public final class CcToolchainProvider extends NativeInfo
       FeatureConfigurationForStarlark featureConfigurationForStarlark) throws EvalException {
     return Depset.of(
         Artifact.class,
-        getStaticRuntimeLinkInputs(featureConfigurationForStarlark.getFeatureConfiguration()));
+        getStaticRuntimeLinkInputsOrThrowError(
+            staticRuntimeLinkInputs, featureConfigurationForStarlark.getFeatureConfiguration()));
   }
 
   @Override
@@ -458,7 +447,8 @@ public final class CcToolchainProvider extends NativeInfo
       FeatureConfigurationForStarlark featureConfigurationForStarlark) throws EvalException {
     return Depset.of(
         Artifact.class,
-        getDynamicRuntimeLinkInputs(featureConfigurationForStarlark.getFeatureConfiguration()));
+        getDynamicRuntimeLinkInputsOrThrowError(
+            dynamicRuntimeLinkInputs, featureConfigurationForStarlark.getFeatureConfiguration()));
   }
 
   public ImmutableList<PathFragment> getBuiltInIncludeDirectories() {
@@ -500,13 +490,9 @@ public final class CcToolchainProvider extends NativeInfo
 
   /**
    * Returns the files necessary for compilation excluding headers, assuming that included files
-   * will be discovered by input discovery. If the toolchain does not provide this fileset, falls
-   * back to {@link #getCompilerFiles()}.
+   * will be discovered by input discovery.
    */
   public NestedSet<Artifact> getCompilerFilesWithoutIncludes() {
-    if (compilerFilesWithoutIncludes.isEmpty()) {
-      return getCompilerFiles();
-    }
     return compilerFilesWithoutIncludes;
   }
 
@@ -592,14 +578,6 @@ public final class CcToolchainProvider extends NativeInfo
     return Depset.of(Artifact.class, getCoverageFiles());
   }
 
-  public NestedSet<Artifact> getLibcLink(CppConfiguration cppConfiguration) {
-    if (cppConfiguration.equals(getCppConfigurationEvenThoughItCanBeDifferentThanWhatTargetHas())) {
-      return libcLink;
-    } else {
-      return targetLibcLink;
-    }
-  }
-
   @Override
   public String getArtifactNameForCategory(
       String category, String outputName, StarlarkThread thread) throws EvalException {
@@ -607,17 +585,23 @@ public final class CcToolchainProvider extends NativeInfo
     return toolchainFeatures.getArtifactNameForCategory(
         ArtifactCategory.valueOf(category), outputName);
   }
+
   /**
    * Returns true if the featureConfiguration includes statically linking the cpp runtimes.
    *
    * @param featureConfiguration the relevant FeatureConfiguration.
    */
-  public boolean shouldStaticallyLinkCppRuntimes(FeatureConfiguration featureConfiguration) {
+  public static boolean shouldStaticallyLinkCppRuntimes(FeatureConfiguration featureConfiguration) {
     return featureConfiguration.isEnabled(CppRuleClasses.STATIC_LINK_CPP_RUNTIMES);
   }
 
+  public NestedSet<Artifact> getStaticRuntimeLinkInputs() {
+    return staticRuntimeLinkInputs;
+  }
+
   /** Returns the static runtime libraries. */
-  public NestedSet<Artifact> getStaticRuntimeLinkInputs(FeatureConfiguration featureConfiguration)
+  public static NestedSet<Artifact> getStaticRuntimeLinkInputsOrThrowError(
+      NestedSet<Artifact> staticRuntimeLinkInputs, FeatureConfiguration featureConfiguration)
       throws EvalException {
     if (shouldStaticallyLinkCppRuntimes(featureConfiguration)) {
       if (staticRuntimeLinkInputs == null) {
@@ -631,8 +615,13 @@ public final class CcToolchainProvider extends NativeInfo
     }
   }
 
+  public NestedSet<Artifact> getDynamicRuntimeLinkInputs() {
+    return dynamicRuntimeLinkInputs;
+  }
+
   /** Returns the dynamic runtime libraries. */
-  public NestedSet<Artifact> getDynamicRuntimeLinkInputs(FeatureConfiguration featureConfiguration)
+  public static NestedSet<Artifact> getDynamicRuntimeLinkInputsOrThrowError(
+      NestedSet<Artifact> dynamicRuntimeLinkInputs, FeatureConfiguration featureConfiguration)
       throws EvalException {
     if (shouldStaticallyLinkCppRuntimes(featureConfiguration)) {
       if (dynamicRuntimeLinkInputs == null) {
@@ -755,8 +744,11 @@ public final class CcToolchainProvider extends NativeInfo
   }
 
   /** Returns build variables to be templated into the crosstool. */
-  public CcToolchainVariables getBuildVariables(
-      StarlarkThread thread, BuildOptions buildOptions, CppConfiguration cppConfiguration)
+  private CcToolchainVariables getBuildVariables(
+      StarlarkThread thread,
+      CppConfiguration cppConfiguration,
+      AppleConfiguration appleConfiguration,
+      String cpu)
       throws EvalException, InterruptedException {
     if (!cppConfiguration.enableCcToolchainResolution()) {
       return buildVariables;
@@ -767,13 +759,11 @@ public final class CcToolchainProvider extends NativeInfo
     String minOsVersion = cppConfiguration.getMinimumOsVersion();
     if (Objects.equals(sysroot, this.sysroot)
         && Objects.equals(minOsVersion, this.cppConfiguration.getMinimumOsVersion())
-        && (ccToolchainBuildVariablesFunc.getName().equals("cc_toolchain_build_variables")
-            || buildOptions.equals(this.buildOptions))) {
+        && ccToolchainBuildVariablesFunc.getName().equals("cc_toolchain_build_variables")) {
       return buildVariables;
     }
     // With platforms, cc toolchain is analyzed in the exec configuration, so we cannot reuse
     // build variables instance.
-    AppleConfiguration appleConfiguration = new AppleConfiguration(buildOptions);
     ApplePlatform platform = appleConfiguration.getSingleArchPlatform();
     Object ccToolchainVariables =
         Starlark.call(
@@ -781,11 +771,27 @@ public final class CcToolchainProvider extends NativeInfo
             ccToolchainBuildVariablesFunc,
             ImmutableList.of(
                 /* platform */ platform,
-                /* cpu */ buildOptions.get(CoreOptions.class).cpu,
+                /* cpu */ cpu,
                 /* cpp_config */ cppConfiguration,
                 /* sysroot */ (sysroot != null ? sysroot.getPathString() : Starlark.NONE)),
             ImmutableMap.of());
     return (CcToolchainVariables) ccToolchainVariables;
+  }
+
+  public static CcToolchainVariables getBuildVars(
+      CcToolchainProvider ccToolchainProvider,
+      StarlarkThread thread,
+      CppConfiguration cppConfiguration,
+      BuildOptions buildOptions,
+      String cpu)
+      throws EvalException, InterruptedException {
+    return ccToolchainProvider.getBuildVariables(
+        thread,
+        cppConfiguration,
+        buildOptions.contains(AppleCommandLineOptions.class)
+            ? new AppleConfiguration(buildOptions)
+            : null,
+        cpu);
   }
 
   @Override
@@ -797,8 +803,21 @@ public final class CcToolchainProvider extends NativeInfo
     CcModule.checkPrivateStarlarkificationAllowlist(thread);
     return getBuildVariables(
         starlarkRuleContext.getRuleContext().getStarlarkThread(),
-        starlarkRuleContext.getRuleContext().getConfiguration().getOptions(),
-        cppConfiguration);
+        cppConfiguration,
+        starlarkRuleContext
+                .getRuleContext()
+                .getConfiguration()
+                .getOptions()
+                .contains(AppleCommandLineOptions.class)
+            ? new AppleConfiguration(
+                starlarkRuleContext.getRuleContext().getConfiguration().getOptions())
+            : null,
+        starlarkRuleContext
+            .getRuleContext()
+            .getConfiguration()
+            .getOptions()
+            .get(CoreOptions.class)
+            .cpu);
   }
 
   /**

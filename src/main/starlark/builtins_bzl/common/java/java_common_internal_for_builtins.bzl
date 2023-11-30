@@ -24,7 +24,6 @@ load(
 )
 load(":common/java/java_semantics.bzl", "semantics")
 load(":common/java/java_toolchain.bzl", "JavaToolchainInfo")
-load(":common/java/sharded_javac.bzl", "experimental_sharded_javac", "use_sharded_javac")
 load(":common/paths.bzl", "paths")
 
 _java_common_internal = _builtins.internal.java_common_internal_do_not_use
@@ -223,71 +222,45 @@ def compile(
         compile_jar = output
         compile_deps_proto = None
 
-    if use_sharded_javac(ctx):
-        if compile_jar == output or not compile_jar:
-            fail("sharding requested without hjar/ijar compilation")
-        generated_source_jar = None
-        generated_class_jar = None
-        deps_proto = None
-        native_headers_jar = None
-        manifest_proto = None
-        experimental_sharded_javac(
-            ctx,
-            java_toolchain,
-            output,
-            compile_jar,
-            plugin_info,
-            compilation_classpath,
-            direct_jars,
-            bootclasspath,
-            compile_time_java_deps,
-            all_javac_opts,
-            strict_deps,
-            source_files,
-            source_jars,
-            resources,
-            resource_jars,
-        )
-    else:
-        native_headers_jar = helper.derive_output_file(ctx, output, name_suffix = "-native-header")
-        manifest_proto = helper.derive_output_file(ctx, output, extension_suffix = "_manifest_proto")
-        deps_proto = None
-        if ctx.fragments.java.generate_java_deps() and has_sources:
-            deps_proto = helper.derive_output_file(ctx, output, extension = "jdeps")
-        generated_class_jar = None
-        generated_source_jar = None
-        if uses_annotation_processing:
-            generated_class_jar = helper.derive_output_file(ctx, output, name_suffix = "-gen")
-            generated_source_jar = helper.derive_output_file(ctx, output, name_suffix = "-gensrc")
-        _java_common_internal.create_compilation_action(
-            ctx,
-            java_toolchain,
-            output,
-            manifest_proto,
-            plugin_info,
-            compilation_classpath,
-            direct_jars,
-            bootclasspath,
-            compile_time_java_deps,
-            all_javac_opts,
-            strict_deps,
-            ctx.label,
-            deps_proto,
-            generated_class_jar,
-            generated_source_jar,
-            native_headers_jar,
-            depset(source_files),
-            source_jars,
-            resources,
-            depset(resource_jars),
-            classpath_resources,
-            sourcepath,
-            injecting_rule_kind,
-            enable_jspecify,
-            enable_direct_classpath,
-            annotation_processor_additional_inputs,
-            annotation_processor_additional_outputs,
-        )
+    native_headers_jar = helper.derive_output_file(ctx, output, name_suffix = "-native-header")
+    manifest_proto = helper.derive_output_file(ctx, output, extension_suffix = "_manifest_proto")
+    deps_proto = None
+    if ctx.fragments.java.generate_java_deps() and has_sources:
+        deps_proto = helper.derive_output_file(ctx, output, extension = "jdeps")
+    generated_class_jar = None
+    generated_source_jar = None
+    if uses_annotation_processing:
+        generated_class_jar = helper.derive_output_file(ctx, output, name_suffix = "-gen")
+        generated_source_jar = helper.derive_output_file(ctx, output, name_suffix = "-gensrc")
+    _java_common_internal.create_compilation_action(
+        ctx,
+        java_toolchain,
+        output,
+        manifest_proto,
+        plugin_info,
+        compilation_classpath,
+        direct_jars,
+        bootclasspath,
+        compile_time_java_deps,
+        all_javac_opts,
+        strict_deps,
+        ctx.label,
+        deps_proto,
+        generated_class_jar,
+        generated_source_jar,
+        native_headers_jar,
+        depset(source_files),
+        source_jars,
+        resources,
+        depset(resource_jars),
+        classpath_resources,
+        sourcepath,
+        injecting_rule_kind,
+        enable_jspecify,
+        enable_direct_classpath,
+        annotation_processor_additional_inputs,
+        annotation_processor_additional_outputs,
+    )
 
     create_output_source_jar = len(source_files) > 0 or source_jars != [output_source_jar]
     if not output_source_jar:
@@ -309,7 +282,7 @@ def compile(
         direct_runtime_jars = []
 
     compilation_info = struct(
-        javac_options = all_javac_opts_list,
+        javac_options = all_javac_opts,
         javac_options_list = all_javac_opts_list,
         # needs to be flattened because the public API is a list
         boot_classpath = (bootclasspath.bootclasspath if bootclasspath else java_toolchain.bootclasspath).to_list(),
@@ -458,4 +431,20 @@ def get_runtime_classpath_for_archive(jars, excluded_jars):
     return _java_common_internal.get_runtime_classpath_for_archive(
         jars,
         excluded_jars,
+    )
+
+def filter_protos_for_generated_extension_registry(runtime_jars, deploy_env):
+    """Get proto artifacts from runtime_jars excluding those in deploy_env
+
+    Args:
+        runtime_jars: (depset[File]) the artifacts to scan
+        deploy_env: (depset[File]) the artifacts to exclude
+
+    Returns
+        (depset[File], bool) A tuple of the filtered protos and whether all protos are 'lite'
+            flavored
+    """
+    return _java_common_internal.filter_protos_for_generated_extension_registry(
+        runtime_jars,
+        deploy_env,
     )

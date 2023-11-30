@@ -14,7 +14,6 @@
 
 package com.google.devtools.build.lib.actions;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue.RunfileSymlinksMode;
@@ -32,17 +31,19 @@ import net.starlark.java.eval.StarlarkValue;
 // they are exposed through ctx.resolve_tools[2], for example.
 public interface RunfilesSupplier extends StarlarkValue {
 
-  /** Returns the contained artifacts. */
-  NestedSet<Artifact> getArtifacts();
+  /**
+   * Returns artifacts the runfiles tree contain symlinks to.
+   *
+   * <p>This includes artifacts that the symlinks and root symlinks point to, not just artifacts at
+   * their canonical location.
+   */
+  NestedSet<Artifact> getAllArtifacts();
 
   /** Returns the runfiles' root directories. */
   ImmutableSet<PathFragment> getRunfilesDirs();
 
   /** Returns mappings from runfiles directories to artifact mappings in that directory. */
   ImmutableMap<PathFragment, Map<PathFragment, Artifact>> getMappings();
-
-  /** Returns the runfiles manifest artifacts, if any. */
-  ImmutableList<Artifact> getManifests();
 
   /**
    * Returns the {@link RunfileSymlinksMode} for the given {@code runfilesDir}, or {@code null} if

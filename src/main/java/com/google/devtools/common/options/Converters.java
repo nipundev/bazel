@@ -525,15 +525,15 @@ public final class Converters {
   }
 
   /** A converter for for assignments from a string value to a float value. */
-  public static class StringToFloatAssignmentConverter
-      extends Converter.Contextless<Map.Entry<String, Float>> {
+  public static class StringToDoubleAssignmentConverter
+      extends Converter.Contextless<Map.Entry<String, Double>> {
     private static final AssignmentConverter baseConverter = new AssignmentConverter();
 
     @Override
-    public Map.Entry<String, Float> convert(String input)
+    public Map.Entry<String, Double> convert(String input)
         throws OptionsParsingException, NumberFormatException {
       Map.Entry<String, String> stringEntry = baseConverter.convert(input);
-      return Maps.immutableEntry(stringEntry.getKey(), Float.parseFloat(stringEntry.getValue()));
+      return Maps.immutableEntry(stringEntry.getKey(), Double.parseDouble(stringEntry.getValue()));
     }
 
     @Override
@@ -681,6 +681,20 @@ public final class Converters {
       String name = input.substring(0, pos);
       String value = input.substring(pos + 1);
       return Maps.immutableEntry(name, value);
+    }
+
+    @Override
+    public boolean starlarkConvertible() {
+      return true;
+    }
+
+    @Override
+    public String reverseForStarlark(Object converted) {
+      @SuppressWarnings("unchecked")
+      Map.Entry<String, String> typedValue = (Map.Entry<String, String>) converted;
+      return typedValue.getValue() == null
+          ? typedValue.getKey()
+          : String.format("%s=%s", typedValue.getKey(), typedValue.getValue());
     }
 
     @Override

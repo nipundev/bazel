@@ -66,14 +66,33 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * This is a basic implementation and incomplete implementation of an action file system that's been
- * tuned to what internal (non-spawn) actions in Bazel currently use.
+ * An action filesystem suitable for use when building with remote caching or execution.
  *
- * <p>The implementation mostly delegates to the local file system except for the case where an
- * action input is a remotely stored action output. Most notably {@link
- * #getInputStream(PathFragment)} and {@link #createSymbolicLink(PathFragment, PathFragment)}.
+ * <p>It acts as a union filesystem over three different sources:
  *
- * <p>This implementation only supports creating local action outputs.
+ * <ul>
+ *   <li>The action input map, providing read-only in-memory access to the metadata (but not the
+ *       contents) of the action's declared inputs.
+ *   <li>The remote output tree, an in-memory filesystem providing read/write access to the metadata
+ *       (but not the contents) of remotely stored files injected during action execution.
+ *   <li>The local filesystem, providing read/write access to the metadata and contents of files
+ *       residing on disk, including the inputs and outputs of local spawns.
+ * </ul>
+ *
+ * <p>Generally speaking, file operations consult the underlying sources in that order and operate
+ * on the first result found, although some (e.g. readdir) collate information from all sources. The
+ * contents of remotely stored files are transparently downloaded when an operation requires them.
+ *
+ * <p>Special care must be taken with operations that follow symlinks, as the symlink and its target
+ * path may reside on different sources, with an arbitrary number of indirections in between. This
+ * is required because some actions (notably SymlinkAction) may materialize an output as a symlink
+ * to an input. Most operations call resolveSymbolicLinks upfront (which is able to canonicalize
+ * paths taking every source into account) and only then delegate to the underlying sources.
+ *
+ * <p>The implementation assumes that an action never modifies its input files, but may otherwise
+ * modify any path in the output tree, including modifications that undo previous ones (e.g.,
+ * writing to a path and then moving it elsewhere). No effort is made to detect irreconcilable
+ * differences between sources (e.g., distinct files of the same name in two different sources).
  */
 public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
   private final PathFragment execRoot;
@@ -97,6 +116,14 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     /** Do not dereference. This is only used internally to resolve symlinks efficiently. */
     FOLLOW_NONE
   };
+
+  /** Describes which sources to consider when statting a file. */
+  private enum StatSources {
+    /** Consider all sources (action input map, in-memory filesystem and local filesystem). */
+    ALL,
+    /** Consider only in-memory sources (action input map and in-memory filesystem). */
+    IN_MEMORY_ONLY,
+  }
 
   private static final FileStatus DIRECTORY_FILE_STATUS =
       new FileStatus() {
@@ -250,15 +277,20 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     return localFs;
   }
 
-  /** Returns true if {@code path} is a file that's stored remotely. */
-  boolean isRemote(Path path) {
+  /** Returns whether a path is stored remotely. Follows symlinks. */
+  boolean isRemote(Path path) throws IOException {
     return isRemote(path.asFragment());
   }
 
-  private boolean isRemote(PathFragment path) {
-    var status = statInMemory(path, FollowMode.FOLLOW_ALL);
-    return (status instanceof FileStatusWithMetadata)
-        && ((FileStatusWithMetadata) status).getMetadata().isRemote();
+  private boolean isRemote(PathFragment path) throws IOException {
+    // Files in the local filesystem are non-remote by definition, so stat only in-memory sources.
+    try {
+      var status = statUnchecked(path, FollowMode.FOLLOW_ALL, StatSources.IN_MEMORY_ONLY);
+      return (status instanceof FileStatusWithMetadata)
+          && ((FileStatusWithMetadata) status).getMetadata().isRemote();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
   }
 
   public void updateContext(ActionExecutionMetadata action) {
@@ -316,6 +348,8 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
 
   @Override
   public void setLastModifiedTime(PathFragment path, long newTime) throws IOException {
+    path = resolveSymbolicLinks(path).asFragment();
+
     FileNotFoundException remoteException = null;
     try {
       // We can't set mtime for a remote file, set mtime of in-memory file node instead.
@@ -349,25 +383,37 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
 
   @Override
   protected byte[] getFastDigest(PathFragment path) throws IOException {
-    var stat = statInMemory(path, FollowMode.FOLLOW_ALL);
-    if (stat instanceof FileStatusWithDigest) {
-      return ((FileStatusWithDigest) stat).getDigest();
+    path = resolveSymbolicLinks(path).asFragment();
+    // Try to obtain a fast digest through a stat. This is only possible for in-memory files.
+    // The parent path has already been canonicalized by resolveSymbolicLinks, so FOLLOW_NONE is
+    // effectively the same as FOLLOW_PARENT, but more efficient.
+    try {
+      var status = statUnchecked(path, FollowMode.FOLLOW_NONE, StatSources.IN_MEMORY_ONLY);
+      if (status instanceof FileStatusWithDigest) {
+        return ((FileStatusWithDigest) status).getDigest();
+      }
+    } catch (FileNotFoundException e) {
+      // Intentionally ignored.
     }
     return localFs.getPath(path).getFastDigest();
   }
 
   @Override
   protected byte[] getDigest(PathFragment path) throws IOException {
-    var status = statInMemory(path, FollowMode.FOLLOW_ALL);
-    if (status instanceof FileStatusWithDigest) {
-      return ((FileStatusWithDigest) status).getDigest();
+    path = resolveSymbolicLinks(path).asFragment();
+    // Try to obtain a fast digest through a stat. This is only possible for in-memory files.
+    // The parent path has already been canonicalized by resolveSymbolicLinks, so FOLLOW_NONE is
+    // effectively the same as FOLLOW_PARENT, but more efficient.
+    try {
+      var status = statUnchecked(path, FollowMode.FOLLOW_NONE, StatSources.IN_MEMORY_ONLY);
+      if (status instanceof FileStatusWithDigest) {
+        return ((FileStatusWithDigest) status).getDigest();
+      }
+    } catch (FileNotFoundException e) {
+      // Intentionally ignored.
     }
     return localFs.getPath(path).getDigest();
   }
-
-  // -------------------- File Permissions --------------------
-  // Remote files are always readable, writable and executable since we can't control their
-  // permissions.
 
   @Override
   protected boolean isReadable(PathFragment path) throws IOException {
@@ -375,6 +421,7 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     try {
       return localFs.getPath(path).isReadable();
     } catch (FileNotFoundException e) {
+      // Remote files are always readable since we can't control their permissions.
       return true;
     }
   }
@@ -385,6 +432,7 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     try {
       return localFs.getPath(path).isWritable();
     } catch (FileNotFoundException e) {
+      // Remote files are always writable since we can't control their permissions.
       return true;
     }
   }
@@ -395,6 +443,7 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     try {
       return localFs.getPath(path).isExecutable();
     } catch (FileNotFoundException e) {
+      // Remote files are always executable since we can't control their permissions.
       return true;
     }
   }
@@ -438,8 +487,6 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
       // Intentionally ignored.
     }
   }
-
-  // -------------------- Symlinks --------------------
 
   @Override
   protected PathFragment readSymbolicLink(PathFragment path) throws IOException {
@@ -499,11 +546,9 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     //
     // The parent path has already been canonicalized, so FOLLOW_NONE is effectively the same as
     // FOLLOW_PARENT, but much more efficient as it doesn't call stat recursively.
-    var stat = statUnchecked(path, FollowMode.FOLLOW_NONE);
+    var stat = statUnchecked(path, FollowMode.FOLLOW_NONE, StatSources.ALL);
     return stat.isSymbolicLink() ? readSymbolicLink(path) : null;
   }
-
-  // -------------------- Implementations based on stat() --------------------
 
   @Override
   protected long getLastModifiedTime(PathFragment path, boolean followSymlinks) throws IOException {
@@ -548,11 +593,13 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
 
   @Override
   protected FileStatus stat(PathFragment path, boolean followSymlinks) throws IOException {
-    return statUnchecked(path, followSymlinks ? FollowMode.FOLLOW_ALL : FollowMode.FOLLOW_PARENT);
+    return statUnchecked(
+        path, followSymlinks ? FollowMode.FOLLOW_ALL : FollowMode.FOLLOW_PARENT, StatSources.ALL);
   }
 
-  @Nullable
-  private FileStatus statUnchecked(PathFragment path, FollowMode followMode) throws IOException {
+  private FileStatus statUnchecked(
+      PathFragment path, FollowMode followMode, StatSources statSources) throws IOException {
+    // Canonicalize the path.
     if (followMode == FollowMode.FOLLOW_ALL) {
       path = resolveSymbolicLinks(path).asFragment();
     } else if (followMode == FollowMode.FOLLOW_PARENT) {
@@ -562,16 +609,8 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
       }
     }
 
-    var status = statInMemory(path, followMode);
-    if (status != null) {
-      return status;
-    }
-    // The path has already been canonicalized above.
-    return localFs.getPath(path).stat(Symlinks.NOFOLLOW);
-  }
+    // Since the path has been canonicalized, the operations below never need to follow symlinks.
 
-  @Nullable
-  private FileStatus statInMemory(PathFragment path, FollowMode followMode) {
     if (path.startsWith(execRoot)) {
       var execPath = path.relativeTo(execRoot);
       var metadata = inputArtifactData.getMetadata(execPath);
@@ -583,8 +622,14 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
       }
     }
 
-    return remoteOutputTree.statNullable(
-        path, /* followSymlinks= */ followMode == FollowMode.FOLLOW_ALL);
+    try {
+      return remoteOutputTree.stat(path, /* followSymlinks= */ false);
+    } catch (FileNotFoundException e) {
+      if (statSources == StatSources.ALL) {
+        return localFs.getPath(path).stat(Symlinks.NOFOLLOW);
+      }
+      throw e;
+    }
   }
 
   private static FileStatusWithMetadata statFromMetadata(FileArtifactValue m) {
@@ -836,15 +881,6 @@ public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat {
     }
     return new Dirent(entry.getName(), direntFromStat(st));
   }
-
-  /*
-   * -------------------- TODO(buchgr): Not yet implemented --------------------
-   *
-   * The below methods have not (yet) been properly implemented due to time constraints mostly and
-   * with little risk as they currently don't seem to be used by internal actions in Bazel. However,
-   * before making the --experimental_remote_download_outputs flag non-experimental we should make
-   * sure to fully implement this file system.
-   */
 
   @Override
   protected void createFSDependentHardLink(PathFragment linkPath, PathFragment originalPath)

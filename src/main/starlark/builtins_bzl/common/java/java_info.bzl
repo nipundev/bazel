@@ -82,7 +82,9 @@ JavaCompilationInfo = provider(
     doc = "Compilation information in Java rules, for perusal of aspects and tools.",
     fields = {
         "boot_classpath": "Boot classpath for this Java target.",
-        "javac_options": "Options to the java compiler.",
+        "javac_options": """Depset of options to the java compiler. To get the
+            exact list of options passed to javac in the correct order, use the
+            tokenize_javacopts utility in rules_java""",
         "javac_options_list": """A list of options to java compiler. This exists
             temporarily for migration purposes. javac_options will return a depset
             in the future, and this method will be dropped once all usages have
@@ -299,6 +301,28 @@ def make_non_strict(java_info):
     )
     return _new_javainfo(**result)
 
+def add_module_flags(java_info, add_exports = [], add_opens = []):
+    """Returns a new JavaInfo instance with the additional add_exports/add_opens
+
+    Args:
+        java_info: (JavaInfo) The java info to enhance.
+        add_exports: ([str]) The <module>/<package>s given access to.
+        add_opens: ([str]) The <module>/<package>s given reflective access to.
+    Returns:
+        (JavaInfo)
+    """
+    if not add_exports and not add_opens:
+        return java_info
+
+    result = _to_mutable_dict(java_info)
+    result.update(
+        module_flags_info = _create_module_flags_info(
+            add_exports = depset(add_exports, transitive = [java_info.module_flags_info.add_exports]),
+            add_opens = depset(add_opens, transitive = [java_info.module_flags_info.add_opens]),
+        ),
+    )
+    return _new_javainfo(**result)
+
 def set_annotation_processing(
         java_info,
         enabled = False,
@@ -453,7 +477,7 @@ def java_info_for_compilation(
     if compilation_info:
         result.update(
             compilation_info = JavaCompilationInfo(
-                javac_options = _java_common_internal.intern_javac_opts(compilation_info.javac_options),
+                javac_options = compilation_info.javac_options,
                 javac_options_list = _java_common_internal.intern_javac_opts(compilation_info.javac_options_list),
                 boot_classpath = compilation_info.boot_classpath,
                 compilation_classpath = compilation_info.compilation_classpath,
@@ -544,7 +568,7 @@ def _javainfo_init_base(
         native_headers_jar = native_headers_jar,
         manifest_proto = manifest_proto,
         jdeps = jdeps,
-        source_jars = depset(source_jars) if _java_common_internal._incompatible_depset_for_java_output_source_jars() else source_jars,
+        source_jars = depset(source_jars),
         source_jar = source_jar,  # deprecated
     )]
     result = {
@@ -711,6 +735,19 @@ def _javainfo_init(
             direct = [output_jar],
             transitive = [dep.transitive_runtime_jars for dep in concatenated_deps.exports_deps + runtime_deps],
         )
+
+    # For backward compatibility, we use deps_exports for add_exports/add_opens
+    # for the JavaInfo constructor rather than runtimedeps_exports_deps (used
+    # by java_info_for_compilation). However, runtimedeps_exports_deps makes
+    # more sense, since add_exports/add_opens from runtime_deps are needed at
+    # runtime anyway.
+    #
+    # TODO: When this flag is removed, move this logic into _javainfo_init_base
+    #  and remove the special case from java_info_for_compilation.
+    module_flags_deps = concatenated_deps.deps_exports
+    if _java_common_internal._incompatible_java_info_merge_runtime_module_flags():
+        module_flags_deps = concatenated_deps.runtimedeps_exports_deps
+
     result.update(
         transitive_runtime_jars = transitive_runtime_jars,
         transitive_source_jars = depset(
@@ -724,11 +761,11 @@ def _javainfo_init(
         module_flags_info = _create_module_flags_info(
             add_exports = depset(add_exports, transitive = [
                 dep.module_flags_info.add_exports
-                for dep in concatenated_deps.deps_exports
+                for dep in module_flags_deps
             ]),
             add_opens = depset(add_opens, transitive = [
                 dep.module_flags_info.add_opens
-                for dep in concatenated_deps.deps_exports
+                for dep in module_flags_deps
             ]),
         ),
     )

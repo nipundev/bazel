@@ -20,8 +20,10 @@ import static com.google.devtools.build.lib.analysis.starlark.StarlarkSubrule.ge
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.actions.Action;
 import com.google.devtools.build.lib.actions.Artifact;
+import com.google.devtools.build.lib.analysis.AspectValue;
 import com.google.devtools.build.lib.analysis.ConfiguredTarget;
 import com.google.devtools.build.lib.analysis.FilesToRunProvider;
 import com.google.devtools.build.lib.analysis.actions.FileWriteAction;
@@ -117,6 +119,121 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
         .hasMessageThat()
         .contains(
             "Error in _my_subrule: rule 'my_rule' must declare '_my_subrule' in" + " 'subrules'");
+  }
+
+  @Test
+  public void testSubrule_childAndParentSubrules() throws Exception {
+    scratch.file(
+        "subrule_testing/parent.bzl",
+        "_parent_subrule = subrule(implementation = lambda ctx: None)",
+        "def _rule_impl(ctx):",
+        "  _parent_subrule()",
+        "parent_rule = rule(implementation = _rule_impl, extendable = True, subrules ="
+            + " [_parent_subrule])");
+    scratch.file(
+        "subrule_testing/child.bzl",
+        "load('parent.bzl', 'parent_rule')",
+        "_child_subrule = subrule(implementation = lambda ctx: None)",
+        "def _rule_impl(ctx):",
+        "  ctx.super()",
+        "  _child_subrule()",
+        "child_rule = rule(implementation = _rule_impl, parent = parent_rule, subrules ="
+            + " [_child_subrule])");
+    scratch.file(
+        "subrule_testing/BUILD", "load('child.bzl', 'child_rule')", "child_rule(name = 'foo')");
+
+    getConfiguredTarget("//subrule_testing:foo");
+
+    assertNoEvents();
+  }
+
+  @Test
+  public void testSubrule_childAndParent_canUseTheSameSubrule() throws Exception {
+    scratch.file(
+        "subrule_testing/parent.bzl",
+        "parent_subrule = subrule(",
+        "  implementation = lambda ctx, _tool: None,",
+        "  attrs = {'_tool': attr.label(default = ':tool')}",
+        ")",
+        "def _rule_impl(ctx):",
+        "  parent_subrule()",
+        "parent_rule = rule(implementation = _rule_impl, extendable = True, subrules ="
+            + " [parent_subrule])");
+    scratch.file(
+        "subrule_testing/child.bzl",
+        "load('parent.bzl', 'parent_rule', 'parent_subrule')",
+        "def _rule_impl(ctx):",
+        "  ctx.super()",
+        "  parent_subrule()",
+        "child_rule = rule(implementation = _rule_impl, parent = parent_rule, subrules ="
+            + " [parent_subrule])");
+    scratch.file(
+        "subrule_testing/BUILD",
+        "load('child.bzl', 'child_rule')",
+        "child_rule(name = 'foo')",
+        "filegroup(name = 'tool')");
+
+    getConfiguredTarget("//subrule_testing:foo");
+
+    assertNoEvents();
+  }
+
+  @Test
+  public void testSubrule_childCantUseParentsSubrule() throws Exception {
+    scratch.file(
+        "subrule_testing/parent.bzl",
+        "parent_subrule = subrule(implementation = lambda ctx: None)",
+        "def _rule_impl(ctx):",
+        "  parent_subrule()",
+        "parent_rule = rule(implementation = _rule_impl, extendable = True, subrules ="
+            + " [parent_subrule])");
+    scratch.file(
+        "subrule_testing/child.bzl",
+        "load('parent.bzl', 'parent_rule', 'parent_subrule')",
+        "_child_subrule = subrule(implementation = lambda ctx: None)",
+        "def _rule_impl(ctx):",
+        "  ctx.super()",
+        "  parent_subrule()",
+        "child_rule = rule(implementation = _rule_impl, parent = parent_rule)");
+    scratch.file(
+        "subrule_testing/BUILD", "load('child.bzl', 'child_rule')", "child_rule(name = 'foo')");
+
+    AssertionError error =
+        assertThrows(AssertionError.class, () -> getConfiguredTarget("//subrule_testing:foo"));
+
+    assertThat(error)
+        .hasMessageThat()
+        .contains(
+            "Error in parent_subrule: rule 'child_rule' must declare 'parent_subrule' in"
+                + " 'subrules'");
+  }
+
+  @Test
+  public void testSubrule_parentCantUseChildsSubrule() throws Exception {
+    scratch.file(
+        "subrule_testing/parent.bzl",
+        "my_subrule = subrule(implementation = lambda ctx: None)",
+        "def _rule_impl(ctx):",
+        "  my_subrule()",
+        "parent_rule = rule(implementation = _rule_impl, extendable = True)");
+    scratch.file(
+        "subrule_testing/child.bzl",
+        "load('parent.bzl', 'parent_rule', 'my_subrule')",
+        "def _rule_impl(ctx):",
+        "  ctx.super()",
+        "  my_subrule()",
+        "child_rule = rule(implementation = _rule_impl, parent = parent_rule, subrules ="
+            + " [my_subrule])");
+    scratch.file(
+        "subrule_testing/BUILD", "load('child.bzl', 'child_rule')", "child_rule(name = 'foo')");
+
+    AssertionError error =
+        assertThrows(AssertionError.class, () -> getConfiguredTarget("//subrule_testing:foo"));
+
+    assertThat(error)
+        .hasMessageThat()
+        .contains(
+            "Error in my_subrule: rule 'parent_rule' must declare 'my_subrule' in 'subrules'");
   }
 
   @Test
@@ -578,6 +695,11 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
                 String.class,
                 "")
             .getImmutableList();
+    ImmutableMap<String, Attribute> aspectAttributes =
+        ((AspectValue) getAspect("//subrule_testing:myrule.bzl%my_aspect"))
+            .getAspect()
+            .getDefinition()
+            .getAttributes();
     String ruleAttrName =
         getRuleAttrName(
             Label.parseCanonical("//subrule_testing:myrule.bzl"),
@@ -585,6 +707,7 @@ public class StarlarkSubruleTest extends BuildViewTestCase {
             "_foo",
             AttributeValueSource.DIRECT);
 
+    assertThat(aspectAttributes).containsKey(ruleAttrName);
     assertThat(attributesVisibleToStarlark).doesNotContain(ruleAttrName);
   }
 

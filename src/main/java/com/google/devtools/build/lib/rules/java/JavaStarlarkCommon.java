@@ -354,12 +354,12 @@ public class JavaStarlarkCommon
   }
 
   @Override
-  public boolean isDepsetForJavaOutputSourceJarsEnabled(StarlarkThread thread)
+  public boolean isJavaInfoMergeRuntimeModuleFlagsEnabled(StarlarkThread thread)
       throws EvalException {
     checkPrivateAccess(thread);
     return thread
         .getSemantics()
-        .getBool(BuildLanguageOptions.INCOMPATIBLE_DEPSET_FOR_JAVA_OUTPUT_SOURCE_JARS);
+        .getBool(BuildLanguageOptions.INCOMPATIBLE_JAVA_INFO_MERGE_RUNTIME_MODULE_FLAGS);
   }
 
   @Override

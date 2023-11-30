@@ -403,7 +403,13 @@ public class CcBinaryThinLtoTest extends BuildViewTestCase {
       List<String> expectedInputs)
       throws Exception {
     SpawnAction dwpAction = (SpawnAction) getGeneratingAction(dwpFile);
-    String dwpToolPath = toolchain.getToolPathFragment(Tool.DWP, ruleContext).getPathString();
+    String dwpToolPath =
+        CcToolchainProvider.getToolPathString(
+            toolchain.getToolPaths(),
+            Tool.DWP,
+            toolchain.getCcToolchainLabel(),
+            toolchain.getToolchainIdentifier(),
+            ruleContext);
     assertThat(dwpAction.getMnemonic()).isEqualTo("CcGenerateDwp");
     assertThat(dwpToolPath).isEqualTo(dwpAction.getCommandFilename());
     List<String> commandArgs = dwpAction.getArguments();
@@ -450,8 +456,7 @@ public class CcBinaryThinLtoTest extends BuildViewTestCase {
     Artifact dwpFile = getFileConfiguredTarget(pkg.getLabel() + ".dwp").getArtifact();
     PathFragment rootPrefix = dwpRootPrefix(dwpFile);
     RuleContext ruleContext = getRuleContext(pkg);
-    CcToolchainProvider toolchain =
-        CppHelper.getToolchainUsingDefaultCcToolchainAttribute(ruleContext);
+    CcToolchainProvider toolchain = CppHelper.getToolchain(ruleContext);
     validateDwp(
         ruleContext,
         dwpFile,
@@ -501,8 +506,7 @@ public class CcBinaryThinLtoTest extends BuildViewTestCase {
     Artifact dwpFile = getFileConfiguredTarget(pkg.getLabel() + ".dwp").getArtifact();
     PathFragment rootPrefix = dwpRootPrefix(dwpFile);
     RuleContext ruleContext = getRuleContext(pkg);
-    CcToolchainProvider toolchain =
-        CppHelper.getToolchainUsingDefaultCcToolchainAttribute(ruleContext);
+    CcToolchainProvider toolchain = CppHelper.getToolchain(ruleContext);
     validateDwp(
         ruleContext,
         dwpFile,
@@ -558,8 +562,7 @@ public class CcBinaryThinLtoTest extends BuildViewTestCase {
     Artifact dwpFile = getFileConfiguredTarget(pkg.getLabel() + ".dwp").getArtifact();
     PathFragment rootPrefix = dwpRootPrefix(dwpFile);
     RuleContext ruleContext = getRuleContext(pkg);
-    CcToolchainProvider toolchain =
-        CppHelper.getToolchainUsingDefaultCcToolchainAttribute(ruleContext);
+    CcToolchainProvider toolchain = CppHelper.getToolchain(ruleContext);
     validateDwp(
         ruleContext,
         dwpFile,

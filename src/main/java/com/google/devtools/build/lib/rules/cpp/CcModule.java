@@ -2534,7 +2534,7 @@ public abstract class CcModule
 
     SourceCategory sourceCategory =
         (language == Language.CPP) ? SourceCategory.CC : SourceCategory.CC_AND_OBJC;
-    CcCommon common = new CcCommon(actions.getRuleContext(), ccToolchainProvider);
+    CcCommon common = new CcCommon(actions.getRuleContext());
     BuildConfigurationValue configuration =
         actions.getActionConstructionContext().getConfiguration();
     CcCompilationHelper helper =
@@ -2969,18 +2969,6 @@ public abstract class CcModule
                 labelReplacement,
                 outputReplacement,
                 getSemantics()));
-  }
-
-  @StarlarkMethod(
-      name = "get_build_info",
-      documented = false,
-      parameters = {@Param(name = "ctx")},
-      useStarlarkThread = true)
-  public Sequence<Artifact> getBuildInfo(StarlarkRuleContext ruleContext, StarlarkThread thread)
-      throws EvalException, InterruptedException {
-    isCalledFromStarlarkCcCommon(thread);
-    return StarlarkList.immutableCopyOf(
-        ruleContext.getRuleContext().getBuildInfo(CppBuildInfo.KEY));
   }
 
   @StarlarkMethod(

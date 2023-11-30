@@ -24,6 +24,7 @@ import com.google.devtools.build.lib.analysis.ConfiguredRuleClassProvider;
 import com.google.devtools.build.lib.analysis.ServerDirectories;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue;
 import com.google.devtools.build.lib.analysis.config.BuildOptions;
+import com.google.devtools.build.lib.analysis.config.CoreOptions;
 import com.google.devtools.build.lib.analysis.config.FragmentFactory;
 import com.google.devtools.build.lib.analysis.config.FragmentOptions;
 import com.google.devtools.build.lib.analysis.config.InvalidConfigurationException;
@@ -36,7 +37,6 @@ import com.google.devtools.build.lib.pkgcache.PathPackageLocator;
 import com.google.devtools.build.lib.rules.repository.RepositoryDelegatorFunction;
 import com.google.devtools.build.lib.runtime.QuiescingExecutorsImpl;
 import com.google.devtools.build.lib.skyframe.BazelSkyframeExecutorConstants;
-import com.google.devtools.build.lib.skyframe.BuildInfoCollectionFunction;
 import com.google.devtools.build.lib.skyframe.PrecomputedValue;
 import com.google.devtools.build.lib.skyframe.SequencedSkyframeExecutor;
 import com.google.devtools.build.lib.testutil.FoundationTestCase;
@@ -128,21 +128,20 @@ public abstract class ConfigurationTestCase extends FoundationTestCase {
             .setSyscallCache(SyscallCache.NO_CACHE)
             .build();
     SkyframeExecutorTestHelper.process(skyframeExecutor);
+    BuildOptions defaultBuildOptions =
+        BuildOptions.getDefaultBuildOptionsForFragments(buildOptionClasses).clone();
+    defaultBuildOptions.get(CoreOptions.class).starlarkExecConfig =
+        TestConstants.STARLARK_EXEC_TRANSITION;
     skyframeExecutor.injectExtraPrecomputedValues(
         ImmutableList.of(
-            PrecomputedValue.injected(
-                PrecomputedValue.BASELINE_CONFIGURATION,
-                BuildOptions.getDefaultBuildOptionsForFragments(buildOptionClasses)),
+            PrecomputedValue.injected(PrecomputedValue.BASELINE_CONFIGURATION, defaultBuildOptions),
             PrecomputedValue.injected(
                 RepositoryDelegatorFunction.RESOLVED_FILE_INSTEAD_OF_WORKSPACE, Optional.empty()),
             PrecomputedValue.injected(
                 RepositoryDelegatorFunction.REPOSITORY_OVERRIDES, ImmutableMap.of()),
             PrecomputedValue.injected(
                 RepositoryDelegatorFunction.FORCE_FETCH,
-                RepositoryDelegatorFunction.FORCE_FETCH_DISABLED),
-            PrecomputedValue.injected(
-                BuildInfoCollectionFunction.BUILD_INFO_FACTORIES,
-                ruleClassProvider.getBuildInfoFactoriesAsMap())));
+                RepositoryDelegatorFunction.FORCE_FETCH_DISABLED)));
     PackageOptions packageOptions = Options.getDefaults(PackageOptions.class);
     packageOptions.showLoadingProgress = true;
     packageOptions.globbingThreads = 7;

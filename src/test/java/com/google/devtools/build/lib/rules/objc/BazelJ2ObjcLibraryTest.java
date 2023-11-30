@@ -17,6 +17,7 @@ package com.google.devtools.build.lib.rules.objc;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.devtools.build.lib.actions.util.ActionsTestUtil.baseArtifactNames;
 import static com.google.devtools.build.lib.actions.util.ActionsTestUtil.getFirstArtifactEndingWith;
+import static com.google.devtools.build.lib.rules.python.PythonTestUtils.getPyLoad;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -1126,6 +1127,7 @@ public class BazelJ2ObjcLibraryTest extends J2ObjcLibraryTest {
         TestConstants.LOAD_PROTO_LANG_TOOLCHAIN,
         "package(default_visibility=['//visibility:public'])",
         "exports_files(['j2objc_deploy.jar'])",
+        getPyLoad("py_binary"),
         "py_binary(",
         "    name = 'j2objc_wrapper_binary',",
         "    srcs = ['j2objc_wrapper_binary.py'],",
@@ -1260,7 +1262,11 @@ public class BazelJ2ObjcLibraryTest extends J2ObjcLibraryTest {
 
   @Test
   public void testCompileActionTemplateFromGenJar() throws Exception {
-    useConfiguration("--apple_platform_type=ios", "--cpu=ios_i386", "--ios_minimum_os=1.0");
+    useConfiguration(
+        "--apple_platform_type=ios",
+        "--cpu=ios_i386",
+        "--ios_minimum_os=1.0",
+        "--platforms=" + MockObjcSupport.IOS_I386);
     addSimpleJ2ObjcLibraryWithJavaPlugin();
     Artifact archive = j2objcArchive("//java/com/google/app/test:transpile", "test");
     CommandAction archiveAction = (CommandAction) getGeneratingAction(archive);

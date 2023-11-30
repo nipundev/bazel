@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.analysis.RuleErrorConsumer;
 import com.google.devtools.build.lib.analysis.actions.ActionConstructionContext;
 import com.google.devtools.build.lib.analysis.config.BuildConfigurationValue;
 import com.google.devtools.build.lib.analysis.config.BuildOptions;
+import com.google.devtools.build.lib.analysis.config.CoreOptions;
 import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
 import com.google.devtools.build.lib.packages.RuleClass.ConfiguredTargetFactory.RuleErrorException;
@@ -120,7 +121,13 @@ public final class LtoBackendArtifacts implements LtoBackendArtifactsApi<Artifac
     CcToolchainVariables ccToolchainVariables;
 
     try {
-      ccToolchainVariables = ccToolchain.getBuildVariables(thread, buildOptions, cppConfiguration);
+      ccToolchainVariables =
+          CcToolchainProvider.getBuildVars(
+              ccToolchain,
+              thread,
+              cppConfiguration,
+              buildOptions,
+              buildOptions.get(CoreOptions.class).cpu);
     } catch (EvalException e) {
       throw new RuleErrorException(e.getMessage());
     }
@@ -279,7 +286,14 @@ public final class LtoBackendArtifacts implements LtoBackendArtifactsApi<Artifac
               featureConfiguration.getToolPathForAction(CppActionNames.LTO_BACKEND));
       builder.setExecutable(compiler);
     } else {
-      PathFragment compiler = ccToolchain.getToolPathFragment(Tool.GCC, ruleErrorConsumer);
+      PathFragment compiler =
+          PathFragment.create(
+              CcToolchainProvider.getToolPathString(
+                  ccToolchain.getToolPaths(),
+                  Tool.GCC,
+                  ccToolchain.getCcToolchainLabel(),
+                  ccToolchain.getToolchainIdentifier(),
+                  ruleErrorConsumer));
       builder.setExecutable(compiler);
     }
   }

@@ -53,8 +53,8 @@ import com.google.devtools.build.lib.runtime.ProcessWrapper;
 import com.google.devtools.build.lib.runtime.RepositoryRemoteExecutor;
 import com.google.devtools.build.lib.server.FailureDetails.ExternalDeps;
 import com.google.devtools.build.lib.server.FailureDetails.ExternalDeps.Code;
+import com.google.devtools.build.lib.skyframe.BzlLoadFailedException;
 import com.google.devtools.build.lib.skyframe.BzlLoadFunction;
-import com.google.devtools.build.lib.skyframe.BzlLoadFunction.BzlLoadFailedException;
 import com.google.devtools.build.lib.skyframe.BzlLoadValue;
 import com.google.devtools.build.lib.skyframe.PrecomputedValue;
 import com.google.devtools.build.lib.util.Fingerprint;
@@ -286,7 +286,7 @@ public class SingleExtensionEvalFunction implements SkyFunction {
       throw new SingleExtensionEvalFunctionException(
           ExternalDepsException.withMessage(
               Code.BAD_MODULE,
-              "Lock file is no longer up-to-date because: %s. "
+              "MODULE.bazel.lock is no longer up-to-date because: %s. "
                   + "Please run `bazel mod deps --lockfile_mode=update` to update your lockfile.",
               String.join(", ", extDiff)),
           Transience.PERSISTENT);

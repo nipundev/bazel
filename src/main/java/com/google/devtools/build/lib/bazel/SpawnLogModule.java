@@ -26,16 +26,16 @@ import com.google.devtools.build.lib.exec.SpawnLogContext;
 import com.google.devtools.build.lib.remote.options.RemoteOptions;
 import com.google.devtools.build.lib.runtime.BlazeModule;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
+import com.google.devtools.build.lib.server.FailureDetails;
 import com.google.devtools.build.lib.server.FailureDetails.Execution;
 import com.google.devtools.build.lib.server.FailureDetails.Execution.Code;
 import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
 import com.google.devtools.build.lib.util.AbruptExitException;
 import com.google.devtools.build.lib.util.DetailedExitCode;
-import com.google.devtools.build.lib.util.io.AsynchronousFileOutputStream;
+import com.google.devtools.build.lib.util.io.AsynchronousMessageOutputStream;
 import com.google.devtools.build.lib.util.io.MessageOutputStream;
 import com.google.devtools.build.lib.util.io.MessageOutputStreamWrapper.BinaryOutputStreamWrapper;
 import com.google.devtools.build.lib.util.io.MessageOutputStreamWrapper.JsonOutputStreamWrapper;
-import com.google.devtools.build.lib.util.io.MessageOutputStreamWrapper.MessageOutputStreamCollection;
 import com.google.devtools.build.lib.vfs.Path;
 import java.io.IOException;
 import java.io.InputStream;
@@ -49,21 +49,15 @@ public final class SpawnLogModule extends BlazeModule {
   @Nullable private Path rawOutputPath;
 
   /** Output stream to write directly into during execution. */
-  @Nullable private MessageOutputStream rawOutputStream;
+  @Nullable private MessageOutputStream<SpawnExec> rawOutputStream;
 
   /**
-   * Output streams to convert the raw output into after the execution is done.
+   * Output stream to convert the raw output into after the execution is done.
    *
-   * <p>We open the streams at the beginning of the command so that any errors (e.g., unwritable
+   * <p>We open the stream at the beginning of the command so that any errors (e.g., unwritable
    * location) are surfaced before execution begins.
    */
-  private MessageOutputStreamCollection convertedOutputStreams;
-
-  /**
-   * Whether the raw outputpath is not one of the requested output files, and may be safely deleted
-   * if conversions are successful.
-   */
-  private boolean mayDeleteRawOutputPath;
+  @Nullable private MessageOutputStream<SpawnExec> convertedOutputStream;
 
   private CommandEnvironment env;
 
@@ -71,8 +65,7 @@ public final class SpawnLogModule extends BlazeModule {
     spawnLogContext = null;
     rawOutputPath = null;
     rawOutputStream = null;
-    convertedOutputStreams = new MessageOutputStreamCollection();
-    mayDeleteRawOutputPath = false;
+    convertedOutputStream = null;
     env = null;
   }
 
@@ -87,6 +80,25 @@ public final class SpawnLogModule extends BlazeModule {
       return;
     }
 
+    if (executionOptions.executionLogBinaryFile != null
+        && executionOptions.executionLogJsonFile != null) {
+      String message =
+          "Must specify at most one of --execution_log_json_file and --execution_log_binary_file";
+      env.getBlazeModuleEnvironment()
+          .exit(
+              new AbruptExitException(
+                  DetailedExitCode.of(
+                      FailureDetail.newBuilder()
+                          .setMessage(message)
+                          .setExecutionOptions(
+                              FailureDetails.ExecutionOptions.newBuilder()
+                                  .setCode(
+                                      FailureDetails.ExecutionOptions.Code
+                                          .MULTIPLE_EXECUTION_LOG_FORMATS))
+                          .build())));
+      return;
+    }
+
     this.env = env;
 
     Path workingDirectory = env.getWorkingDirectory();
@@ -98,29 +110,27 @@ public final class SpawnLogModule extends BlazeModule {
     // pointless conversion at the end. Otherwise, use a temporary path.
     if (executionOptions.executionLogBinaryFile != null && !executionOptions.executionLogSort) {
       rawOutputPath = workingDirectory.getRelative(executionOptions.executionLogBinaryFile);
-      mayDeleteRawOutputPath = true;
     } else {
       rawOutputPath = outputBase.getRelative("execution.log");
-      mayDeleteRawOutputPath = false;
     }
-    rawOutputStream = new AsynchronousFileOutputStream(rawOutputPath);
+    rawOutputStream = new AsynchronousMessageOutputStream<>(rawOutputPath);
 
     // Set up the binary output stream, if distinct from the raw output stream.
     if (executionOptions.executionLogBinaryFile != null && executionOptions.executionLogSort) {
-      convertedOutputStreams.addStream(
-          new BinaryOutputStreamWrapper(
+      convertedOutputStream =
+          new BinaryOutputStreamWrapper<>(
               workingDirectory
                   .getRelative(executionOptions.executionLogBinaryFile)
-                  .getOutputStream()));
+                  .getOutputStream());
     }
 
     // Set up the text output stream.
     if (executionOptions.executionLogJsonFile != null) {
-      convertedOutputStreams.addStream(
-          new JsonOutputStreamWrapper(
+      convertedOutputStream =
+          new JsonOutputStreamWrapper<>(
               workingDirectory
                   .getRelative(executionOptions.executionLogJsonFile)
-                  .getOutputStream()));
+                  .getOutputStream());
     }
 
     spawnLogContext =
@@ -175,17 +185,17 @@ public final class SpawnLogModule extends BlazeModule {
     boolean done = false;
     try {
       spawnLogContext.close();
-      if (!convertedOutputStreams.isEmpty()) {
+      if (convertedOutputStream != null) {
         InputStream in = rawOutputPath.getInputStream();
         if (spawnLogContext.shouldSort()) {
-          StableSort.stableSort(in, convertedOutputStreams);
+          StableSort.stableSort(in, convertedOutputStream);
         } else {
           while (in.available() > 0) {
             SpawnExec ex = SpawnExec.parseDelimitedFrom(in);
-            convertedOutputStreams.write(ex);
+            convertedOutputStream.write(ex);
           }
         }
-        convertedOutputStreams.close();
+        convertedOutputStream.close();
       }
       done = true;
     } catch (IOException e) {
@@ -193,17 +203,19 @@ public final class SpawnLogModule extends BlazeModule {
       throw new AbruptExitException(
           createDetailedExitCode(message, Code.EXECUTION_LOG_WRITE_FAILURE), e);
     } finally {
-      if (!done && !convertedOutputStreams.isEmpty()) {
-        env.getReporter()
-            .handle(
-                Event.warn(
-                    "Execution log might not have been populated. Raw execution log is at "
-                        + rawOutputPath));
-      } else if (mayDeleteRawOutputPath) {
-        try {
-          rawOutputPath.delete();
-        } catch (IOException e) {
-          // Intentionally ignored.
+      if (convertedOutputStream != null) {
+        if (!done) {
+          env.getReporter()
+              .handle(
+                  Event.warn(
+                      "Execution log might not have been populated. Raw execution log is at "
+                          + rawOutputPath));
+        } else {
+          try {
+            rawOutputPath.delete();
+          } catch (IOException e) {
+            // Intentionally ignored.
+          }
         }
       }
       clear();
