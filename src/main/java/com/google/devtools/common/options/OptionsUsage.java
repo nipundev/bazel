@@ -354,10 +354,10 @@ class OptionsUsage {
           .append("={")
           .append(COMMA_JOINER.join(fieldType.getEnumConstants()).toLowerCase(Locale.ENGLISH))
           .append("}\n");
-    } else if (fieldType.getSimpleName().equals("Label")) {
+    } else if ("Label".equals(fieldType.getSimpleName())) {
       // String comparison so we don't introduce a dependency to com.google.devtools.build.lib.
       builder.append("=label\n");
-    } else if (fieldType.getSimpleName().equals("PathFragment")) {
+    } else if ("PathFragment".equals(fieldType.getSimpleName())) {
       builder.append("=path\n");
     } else if (Void.class.isAssignableFrom(fieldType)) {
       builder.append("\n");

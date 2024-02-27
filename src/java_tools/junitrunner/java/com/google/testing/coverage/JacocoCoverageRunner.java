@@ -427,7 +427,7 @@ public class JacocoCoverageRunner {
   public static void main(String[] args) throws Exception {
     String metadataFile = System.getenv("JACOCO_METADATA_JAR");
     String jarWrappedValue = System.getenv("JACOCO_IS_JAR_WRAPPED");
-    boolean wasWrappedJar = jarWrappedValue != null ? !jarWrappedValue.equals("0") : false;
+    boolean wasWrappedJar = jarWrappedValue != null ? !"0".equals(jarWrappedValue) : false;
 
     File[] metadataFiles = null;
     int deployJars = 0;

@@ -99,7 +99,7 @@ public class ShellQuotedParamsFilePreProcessor extends ParamsFilePreProcessor {
           if (current == '\'') {
             StringBuilder escapedQuoteRemainder =
                 new StringBuilder().append(read()).append(read()).append(read());
-            if (escapedQuoteRemainder.toString().equals("\\''")) {
+            if ("\\''".equals(escapedQuoteRemainder.toString())) {
               arg.append("'");
             } else {
               for (char c : escapedQuoteRemainder.reverse().toString().toCharArray()) {

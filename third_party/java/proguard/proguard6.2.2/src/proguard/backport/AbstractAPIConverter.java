@@ -588,8 +588,8 @@ implements ClassVisitor,
         {
             if (replacement.contains("<1>"))
             {
-                if (original.equals("<static>") ||
-                    original.equals("<default>"))
+                if ("<static>".equals(original) ||
+                    "<default>".equals(original))
                 {
                     return actual;
                 }
@@ -645,7 +645,7 @@ implements ClassVisitor,
 
             classNameMatcher  = new ClassNameParser(null).parse(matchingClassName);
             methodNameMatcher = new NameParser(null).parse(matchingMethodName);
-            descMatcher       = matchingMethodDesc.equals("**") ?
+            descMatcher       = "**".equals(matchingMethodDesc) ?
                 new ConstantMatcher(true) :
                 new ClassNameParser(null).parse(matchingMethodDesc);
         }
@@ -661,7 +661,7 @@ implements ClassVisitor,
 
         private String getDescReplacement(String original, String actual, String replacement)
         {
-            if (matchingMethodName.equals("<default>"))
+            if ("<default>".equals(matchingMethodName))
             {
                 // Extend the replacement descriptor.
                 String replacedDesc = getReplacement(original, actual, replacement);
@@ -719,9 +719,9 @@ implements ClassVisitor,
         {
             return methodNameMatcher.matches(methodName)                                                          ||
                    //  or the method is a default method and the pattern matches all default methods
-                   (matchingMethodName.equals("<default>") && isDefaultMethod(referencedClass, referencedMember)) ||
+                   ("<default>".equals(matchingMethodName) && isDefaultMethod(referencedClass, referencedMember)) ||
                    //  or the method is static and the pattern matches all static methods
-                   (matchingMethodName.equals("<static>") && isStatic(referencedMember));
+                   ("<static>".equals(matchingMethodName) && isStatic(referencedMember));
         }
 
 

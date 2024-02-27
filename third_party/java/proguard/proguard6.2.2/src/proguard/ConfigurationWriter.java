@@ -314,7 +314,7 @@ public class ConfigurationWriter
             if (url.getPath().length() > 0)
             {
                 String fileName = url.toExternalForm();
-                if (url.getProtocol().equals("file"))
+                if ("file".equals(url.getProtocol()))
                 {
                     try
                     {

@@ -126,7 +126,7 @@ public class UpToDateChecker
         public void updateInputModificationTime(URL url)
         {
             if (url != null &&
-                url.getProtocol().equals("file"))
+                "file".equals(url.getProtocol()))
             {
                 try
                 {

@@ -33,7 +33,7 @@ class Wildcard {
   private final int[] refs;
 
   public Wildcard(String pattern, String result) {
-    if (pattern.equals("**")) {
+    if ("**".equals(pattern)) {
       throw new IllegalArgumentException("'**' is not a valid pattern");
     }
     if (!checkIdentifierChars(pattern, "/*-")) {

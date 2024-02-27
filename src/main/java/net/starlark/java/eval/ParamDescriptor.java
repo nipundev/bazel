@@ -118,7 +118,7 @@ final class ParamDescriptor {
     // TODO(b/200065655#comment3): Remove when we have an official way for package defaults.
     ImmutableList<Class<?>> allowedClassesFiltered =
         allowedClasses.stream()
-            .filter(x -> !Starlark.classType(x).equals("NativeComputedDefault"))
+            .filter(x -> !"NativeComputedDefault".equals(Starlark.classType(x)))
             .collect(ImmutableList.toImmutableList());
     for (int i = 0, n = allowedClassesFiltered.size(); i < n; i++) {
       if (i > 0) {
@@ -172,23 +172,23 @@ final class ParamDescriptor {
     // defaultValueCache and UNIVERSE would be, you have to write
     // code that works in all possible dynamic initialization orders.)
     // Better not to go there.
-    if (expr.equals("None")) {
+    if ("None".equals(expr)) {
       return Starlark.NONE;
-    } else if (expr.equals("True")) {
+    } else if ("True".equals(expr)) {
       return true;
-    } else if (expr.equals("False")) {
+    } else if ("False".equals(expr)) {
       return false;
-    } else if (expr.equals("unbound")) {
+    } else if ("unbound".equals(expr)) {
       return Starlark.UNBOUND;
-    } else if (expr.equals("0")) {
+    } else if ("0".equals(expr)) {
       return StarlarkInt.of(0);
-    } else if (expr.equals("1")) {
+    } else if ("1".equals(expr)) {
       return StarlarkInt.of(1);
-    } else if (expr.equals("[]")) {
+    } else if ("[]".equals(expr)) {
       return StarlarkList.empty();
-    } else if (expr.equals("()")) {
+    } else if ("()".equals(expr)) {
       return Tuple.empty();
-    } else if (expr.equals("\" \"")) {
+    } else if ("\" \"".equals(expr)) {
       return " ";
     }
 

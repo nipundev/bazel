@@ -169,16 +169,16 @@ class Main {
       if (!args[i].startsWith("-")) {
         break;
       }
-      if (args[i].equals("--")) {
+      if ("--".equals(args[i])) {
         i++;
         break;
       }
-      if (args[i].equals("-c")) {
+      if ("-c".equals(args[i])) {
         if (i + 1 == args.length) {
           throw new IOException("-c <cmd> flag needs an argument");
         }
         cmd = args[++i];
-      } else if (args[i].equals("-cpuprofile")) {
+      } else if ("-cpuprofile".equals(args[i])) {
         if (i + 1 == args.length) {
           throw new IOException("-cpuprofile <file> flag needs an argument");
         }

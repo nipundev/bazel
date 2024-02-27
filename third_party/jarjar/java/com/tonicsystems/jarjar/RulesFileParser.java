@@ -52,16 +52,16 @@ class RulesFileParser {
         }
         String type = parts[0];
         PatternElement element = null;
-        if (type.equals("rule")) {
+        if ("rule".equals(type)) {
           if (parts.length < 3) {
             error(c, parts);
           }
           Rule rule = new Rule();
           rule.setResult(parts[2]);
           element = rule;
-        } else if (type.equals("zap")) {
+        } else if ("zap".equals(type)) {
           element = new Zap();
-        } else if (type.equals("keep")) {
+        } else if ("keep".equals(type)) {
           element = new Keep();
         } else {
           error(c, parts);

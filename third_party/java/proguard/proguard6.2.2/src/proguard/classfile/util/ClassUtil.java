@@ -1014,7 +1014,7 @@ public class ClassUtil
             externalType.equals(JavaConstants.TYPE_FLOAT  ) ? ClassConstants.TYPE_FLOAT   :
             externalType.equals(JavaConstants.TYPE_LONG   ) ? ClassConstants.TYPE_LONG    :
             externalType.equals(JavaConstants.TYPE_DOUBLE ) ? ClassConstants.TYPE_DOUBLE  :
-            externalType.equals("%"                       ) ? '%'                         :
+            "%".equals(externalType                       ) ? '%'                         :
                                                               (char)0;
 
         String internalType =

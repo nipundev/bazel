@@ -703,8 +703,8 @@ public class ConfigurationLogger implements Runnable
                     StringTokenizer tokenizer            = new StringTokenizer(line, ",");
                     String          originalClassName    = tokenizer.nextToken();
                     String          obfuscatedClassName  = tokenizer.nextToken();
-                    boolean         hasObfuscatedMethods = tokenizer.nextToken().equals("1");
-                    boolean         hasObfuscatedFields  = tokenizer.nextToken().equals("1");
+                    boolean         hasObfuscatedMethods = "1".equals(tokenizer.nextToken());
+                    boolean         hasObfuscatedFields  = "1".equals(tokenizer.nextToken());
 
                     classNameMap.put(obfuscatedClassName, originalClassName);
 

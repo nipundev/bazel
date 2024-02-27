@@ -157,7 +157,7 @@ public final class Resolver extends NodeVisitor {
       }
       this.parameterNames = names.build();
 
-      this.isToplevel = name.equals("<toplevel>");
+      this.isToplevel = "<toplevel>".equals(name);
       this.locals = ImmutableList.copyOf(locals);
       this.freevars = ImmutableList.copyOf(freevars);
       this.globals = ImmutableList.copyOf(globals);

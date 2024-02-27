@@ -96,7 +96,7 @@ public class ClassReader implements DataEntryReader
             if (className != null)
             {
                 String dataEntryName = dataEntry.getName();
-                if (!dataEntryName.equals("module-info.class") &&
+                if (!"module-info.class".equals(dataEntryName) &&
                     !dataEntryName.replace(File.pathSeparatorChar, ClassConstants.PACKAGE_SEPARATOR).equals(className + ClassConstants.CLASS_FILE_EXTENSION) &&
                     warningPrinter != null)
                 {

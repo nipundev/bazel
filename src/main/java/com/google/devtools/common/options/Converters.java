@@ -142,7 +142,7 @@ public final class Converters {
         return TriState.AUTO;
       }
       input = Ascii.toLowerCase(input);
-      if (input.equals("auto")) {
+      if ("auto".equals(input)) {
         return TriState.AUTO;
       }
       if (ENABLED_REPS.contains(input)) {
@@ -167,7 +167,7 @@ public final class Converters {
   public static class VoidConverter extends Converter.Contextless<Void> {
     @Override
     public Void convert(String input) throws OptionsParsingException {
-      if (input == null || input.equals("null")) {
+      if (input == null || "null".equals(input)) {
         return null; // expected input, return is unused so null is fine.
       }
       throw new OptionsParsingException("'" + input + "' unexpected");

@@ -507,7 +507,7 @@ class OptionsParserImpl {
 
       arg = swapShorthandAlias(arg);
 
-      if (arg.equals("--")) { // "--" means all remaining args aren't options
+      if ("--".equals(arg)) { // "--" means all remaining args aren't options
         Iterators.addAll(unparsedPostDoubleDashArgs, argsIterator);
         break;
       }

@@ -125,17 +125,17 @@ public final class DexFormat {
 
         String version = "" + ((char) magic[4]) + ((char) magic[5]) +((char) magic[6]);
 
-        if (version.equals(VERSION_FOR_API_13)) {
+        if (VERSION_FOR_API_13.equals(version)) {
             return API_NO_EXTENDED_OPCODES;
-        } else if (version.equals(VERSION_FOR_API_24)) {
+        } else if (VERSION_FOR_API_24.equals(version)) {
             return API_DEFINE_INTERFACE_METHODS;
-        } else if (version.equals(VERSION_FOR_API_26)) {
+        } else if (VERSION_FOR_API_26.equals(version)) {
             return API_METHOD_HANDLES;
-        } else if (version.equals(VERSION_FOR_API_28)) {
+        } else if (VERSION_FOR_API_28.equals(version)) {
             return API_CONST_METHOD_HANDLE;
-        } else if (version.equals(VERSION_FOR_API_10000)) {
+        } else if (VERSION_FOR_API_10000.equals(version)) {
             return API_SPACES_IN_SIMPLE_NAME;
-        } else if (version.equals(VERSION_CURRENT)) {
+        } else if (VERSION_CURRENT.equals(version)) {
             return API_CURRENT;
         }
 

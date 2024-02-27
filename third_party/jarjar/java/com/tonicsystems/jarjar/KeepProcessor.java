@@ -102,7 +102,7 @@ class KeepProcessor extends Remapper implements JarProcessor {
 
   // TODO: use this for package remapping too?
   private static boolean isForName(String value) {
-    if (value.equals("")) {
+    if ("".equals(value)) {
       return false;
     }
     for (int i = 0, len = value.length(); i < len; i++) {
