@@ -17,6 +17,7 @@
 package com.tonicsystems.jarjar.util;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
@@ -28,7 +29,7 @@ public class StandaloneJarProcessor {
     byte[] buf = new byte[0x2000];
 
     JarFile in = new JarFile(from);
-    final File tmpTo = File.createTempFile("jarjar", ".jar");
+    final File tmpTo = Files.createTempFile("jarjar", ".jar").toFile();
     JarOutputStream out = new JarOutputStream(new FileOutputStream(tmpTo));
     Set<String> entries = new HashSet<String>();
     try {

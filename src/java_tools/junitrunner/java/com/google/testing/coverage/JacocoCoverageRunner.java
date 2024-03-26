@@ -15,6 +15,7 @@
 package com.google.testing.coverage;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import java.nio.file.Files;
 import static java.nio.file.Files.newBufferedWriter;
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -331,7 +332,7 @@ public class JacocoCoverageRunner {
     // throwing an exception, we're going to run anyway and write the coverage data to a temporary,
     // throw-away file.
     if (pathTemplate == null) {
-      return File.createTempFile("coverage", suffix).getPath();
+      return Files.createTempFile("coverage", suffix).toFile().getPath();
     } else {
       // bazel sets the path template to a file with the .dat extension. lcov_merger matches all
       // files having '.dat' in their name, so instead of appending we change the extension.
@@ -341,7 +342,7 @@ public class JacocoCoverageRunner {
       if (lastDot != -1) {
         prefix = prefix.substring(0, lastDot);
       }
-      return File.createTempFile(prefix, suffix, absolutePathTemplate.getParentFile()).getPath();
+      return Files.createTempFile(absolutePathTemplate.getParentFile().toPath(), prefix, suffix).toFile().getPath();
     }
   }
 
