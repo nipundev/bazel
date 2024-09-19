@@ -14,6 +14,7 @@
 package com.google.devtools.build.android.r8;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.android.tools.r8.D8;
@@ -103,7 +104,7 @@ public class CompatDexBuilderTest {
       assertThat(entry).isNotNull();
       try (BufferedReader reader =
           new BufferedReader(new InputStreamReader(zipFile.getInputStream(entry), UTF_8))) {
-        String line = reader.readLine();
+        String line = BoundedLineReader.readLine(reader, 5_000_000);
         assertThat(line).isNotNull();
         // Format of mapping is: <synthetic-binary-name>;<context-binary-name>\n
         int sep = line.indexOf(';');
@@ -116,7 +117,7 @@ public class CompatDexBuilderTest {
         // Check expected context.
         assertThat(contextNameInMap).isEqualTo(contextName);
         // Only one synthetic and its context should be present.
-        line = reader.readLine();
+        line = BoundedLineReader.readLine(reader, 5_000_000);
         assertThat(line).isNull();
       }
     }

@@ -18,6 +18,7 @@ import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_EXTENSI
 import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_JSON_EXTENSION;
 import static com.google.devtools.coverageoutputgenerator.Constants.PROFDATA_EXTENSION;
 import static com.google.devtools.coverageoutputgenerator.Constants.TRACEFILE_EXTENSION;
+import io.github.pixee.security.BoundedLineReader;
 import static java.lang.Math.max;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -199,7 +200,7 @@ public class Main {
     try (FileInputStream inputStream = new FileInputStream(new File(sourceFileManifest));
         InputStreamReader inputStreamReader = new InputStreamReader(inputStream, UTF_8);
         BufferedReader reader = new BufferedReader(inputStreamReader)) {
-      for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+      for (String line = BoundedLineReader.readLine(reader, 5_000_000); line != null; line = BoundedLineReader.readLine(reader, 5_000_000)) {
         if (!isMetadataFile(line)) {
           sourceFiles.add(line);
         }
@@ -283,9 +284,9 @@ public class Main {
     try (FileInputStream inputStream = new FileInputStream(file);
         InputStreamReader inputStreamReader = new InputStreamReader(inputStream, UTF_8);
         BufferedReader reader = new BufferedReader(inputStreamReader)) {
-      for (String keyToValueLine = reader.readLine();
+      for (String keyToValueLine = BoundedLineReader.readLine(reader, 5_000_000);
           keyToValueLine != null;
-          keyToValueLine = reader.readLine()) {
+          keyToValueLine = BoundedLineReader.readLine(reader, 5_000_000)) {
         String[] keyAndValue = keyToValueLine.split(":");
         if (keyAndValue.length == 2) {
           mapBuilder.put(keyAndValue[0], keyAndValue[1]);
@@ -374,7 +375,7 @@ public class Main {
     try (FileInputStream inputStream = new FileInputStream(reportsFile)) {
       InputStreamReader inputStreamReader = new InputStreamReader(inputStream, UTF_8);
       BufferedReader reader = new BufferedReader(inputStreamReader);
-      for (String tracefile = reader.readLine(); tracefile != null; tracefile = reader.readLine()) {
+      for (String tracefile = BoundedLineReader.readLine(reader, 5_000_000); tracefile != null; tracefile = BoundedLineReader.readLine(reader, 5_000_000)) {
         // TODO(elenairina): baseline coverage contains some file names that need to be modified
         if (!tracefile.endsWith("baseline_coverage.dat")) {
           datFiles.add(new File(tracefile));

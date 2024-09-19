@@ -22,6 +22,7 @@ import static com.google.devtools.build.android.ziputils.DirectoryEntry.CENSIZ;
 import static com.google.devtools.build.android.ziputils.DirectoryEntry.CENTIM;
 import static com.google.devtools.build.android.ziputils.LocalFileHeader.LOCFLG;
 import static com.google.devtools.build.android.ziputils.LocalFileHeader.LOCTIM;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Preconditions;
@@ -501,7 +502,7 @@ public class SplitZip implements EntryHandler {
     try (BufferedReader reader =
         new BufferedReader(new InputStreamReader(filterInputStream, UTF_8))) {
       String line;
-      while (null != (line = reader.readLine())) {
+      while (null != (line = BoundedLineReader.readLine(reader, 5_000_000))) {
         paths.add(fixPath(line));
       }
       return paths;

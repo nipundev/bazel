@@ -15,6 +15,7 @@
 package com.google.devtools.build.lib.metrics;
 
 import static com.google.common.collect.ImmutableSetMultimap.toImmutableSetMultimap;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.auto.value.AutoValue;
@@ -120,7 +121,7 @@ public class PsInfoCollector {
       // size in kilobytes.
       String output = null;
       boolean isFirst = true;
-      while ((output = psOutput.readLine()) != null) {
+      while ((output = BoundedLineReader.readLine(psOutput, 5_000_000)) != null) {
         if (isFirst) {
           isFirst = false;
           continue;
