@@ -15,6 +15,8 @@
 package com.google.devtools.common.options;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertThrows;
 
@@ -380,7 +382,7 @@ public class OptionsTest {
     @Override
     public URL convert(String input) throws OptionsParsingException {
       try {
-        return new URL(input);
+        return Urls.create(input, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
       } catch (MalformedURLException e) {
         throw new OptionsParsingException("Could not convert '" + input + "': "
                                           + e.getMessage());
