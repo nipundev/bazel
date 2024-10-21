@@ -15,6 +15,7 @@ package com.google.devtools.build.lib.shell;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import java.nio.file.Files;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
@@ -177,7 +178,7 @@ public class CommandTest {
 
   @Test
   public void testAsynchronous() throws Exception {
-    File tempFile = File.createTempFile("googlecron-test", "tmp");
+    File tempFile = Files.createTempFile("googlecron-test", "tmp").toFile();
     tempFile.delete();
     Command command = new Command(new String[] {"touch", tempFile.getAbsolutePath()});
     FutureCommandResult result = command.executeAsync();

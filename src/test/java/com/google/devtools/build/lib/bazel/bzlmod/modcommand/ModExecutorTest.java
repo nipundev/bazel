@@ -469,7 +469,7 @@ public class ModExecutorTest {
     options.depth = 1;
     options.outputFormat = OutputFormat.TEXT;
 
-    File file = File.createTempFile("output_text", "txt");
+    File file = Files.createTempFile("output_text", "txt").toFile();
     file.deleteOnExit();
     Writer writer = new OutputStreamWriter(new FileOutputStream(file), UTF_8);
 
@@ -509,7 +509,7 @@ public class ModExecutorTest {
         .inOrder();
 
     options.outputFormat = OutputFormat.GRAPH;
-    File fileGraph = File.createTempFile("output_graph", "txt");
+    File fileGraph = Files.createTempFile("output_graph", "txt").toFile();
     fileGraph.deleteOnExit();
     writer = new OutputStreamWriter(new FileOutputStream(fileGraph), UTF_8);
     executor = new ModExecutor(depGraph, options, writer);
@@ -662,7 +662,7 @@ public class ModExecutorTest {
                     .build())
             .buildOrThrow();
 
-    File file = File.createTempFile("output_text", "txt");
+    File file = Files.createTempFile("output_text", "txt").toFile();
     file.deleteOnExit();
     Writer writer = new OutputStreamWriter(new FileOutputStream(file), UTF_8);
 
@@ -714,7 +714,7 @@ public class ModExecutorTest {
         .inOrder();
 
     options.outputFormat = OutputFormat.GRAPH;
-    File fileGraph = File.createTempFile("output_graph", "txt");
+    File fileGraph = Files.createTempFile("output_graph", "txt").toFile();
     fileGraph.deleteOnExit();
     writer = new OutputStreamWriter(new FileOutputStream(fileGraph), UTF_8);
     executor =
@@ -764,7 +764,7 @@ public class ModExecutorTest {
 
     options.outputFormat = OutputFormat.TEXT;
     options.depth = 1;
-    File fileText2 = File.createTempFile("output_text2", "txt");
+    File fileText2 = Files.createTempFile("output_text2", "txt").toFile();
     fileText2.deleteOnExit();
     writer = new OutputStreamWriter(new FileOutputStream(fileText2), UTF_8);
     executor =

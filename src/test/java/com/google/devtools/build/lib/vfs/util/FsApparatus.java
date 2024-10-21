@@ -24,6 +24,7 @@ import com.google.devtools.build.lib.vfs.inmemoryfs.InMemoryFileSystem;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
 
 /**
  * Base class for a testing apparatus for a scratch filesystem.
@@ -156,7 +157,7 @@ public class FsApparatus {
       throw new IOException("Can not create Unix temporary directories in "
                             + "an in-memory file system");
     }
-    File file = File.createTempFile("scratch", "tmp");
+    File file = Files.createTempFile("scratch", "tmp").toFile();
     final Path path = fileSystem.getPath(file.getAbsolutePath());
     path.delete();
     path.createDirectory();
