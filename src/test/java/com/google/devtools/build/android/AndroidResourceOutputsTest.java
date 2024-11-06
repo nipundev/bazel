@@ -16,6 +16,7 @@ package com.google.devtools.build.android;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.jimfs.Jimfs;
+import io.github.pixee.security.ZipSecurity;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,7 +59,7 @@ public class AndroidResourceOutputsTest {
     }
 
     List<String> entries = new ArrayList<>();
-    try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(output))) {
+    try (ZipInputStream zin = ZipSecurity.createHardenedInputStream(Files.newInputStream(output))) {
       ZipEntry entry = null;
       while ((entry = zin.getNextEntry()) != null) {
         entries.add(entry.getName());

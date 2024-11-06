@@ -15,6 +15,7 @@ package com.google.devtools.build.android;
 
 import static com.google.common.base.Predicates.not;
 import static com.google.common.base.Verify.verify;
+import io.github.pixee.security.ZipSecurity;
 import static java.util.stream.Collectors.toList;
 
 import android.aapt.pb.internal.ResourcesInternal.CompiledFile;
@@ -605,7 +606,7 @@ public class AndroidCompiledDataDeserializer implements AndroidDataDeserializer 
   }
 
   public static Map<DataKey, DataResource> readAttributes(CompiledResources resources) {
-    try (ZipInputStream zipStream = new ZipInputStream(Files.newInputStream(resources.getZip()))) {
+    try (ZipInputStream zipStream = ZipSecurity.createHardenedInputStream(Files.newInputStream(resources.getZip()))) {
       Map<DataKey, DataResource> attributes = new LinkedHashMap<>();
       for (ZipEntry entry = zipStream.getNextEntry();
           entry != null;

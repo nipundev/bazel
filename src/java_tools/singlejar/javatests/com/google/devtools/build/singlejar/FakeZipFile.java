@@ -15,6 +15,7 @@
 package com.google.devtools.build.singlejar;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.ZipSecurity;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -157,7 +158,7 @@ public final class FakeZipFile {
       byte[] maybePreamble = Arrays.copyOfRange(data, 0, offset);
       assertThat(maybePreamble).isEqualTo(preamble);
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(data, offset, length));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(data, offset, length));
     for (FakeZipEntry entry : entries) {
       entry.assertNext(zipInput);
     }

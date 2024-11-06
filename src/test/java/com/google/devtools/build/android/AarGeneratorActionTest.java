@@ -14,6 +14,7 @@
 package com.google.devtools.build.android;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.ZipSecurity;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.junit.Assert.assertNotNull;
@@ -263,7 +264,7 @@ public class AarGeneratorActionTest {
    * @throws IOException if there is an error reading the zip file.
    */
   private void traverseZipFile(Path zip, FileOperation operation) throws IOException {
-    ZipInputStream zis = new ZipInputStream(Files.newInputStream(zip));
+    ZipInputStream zis = ZipSecurity.createHardenedInputStream(Files.newInputStream(zip));
     ZipEntry z = zis.getNextEntry();
     while (z != null) {
       ByteArrayOutputStream baos = new ByteArrayOutputStream();

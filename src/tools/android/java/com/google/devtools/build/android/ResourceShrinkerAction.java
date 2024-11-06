@@ -34,6 +34,7 @@ import com.google.devtools.common.options.OptionEffectTag;
 import com.google.devtools.common.options.OptionsBase;
 import com.google.devtools.common.options.OptionsParser;
 import com.google.devtools.common.options.ShellQuotedParamsFilePreProcessor;
+import io.github.pixee.security.ZipSecurity;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -252,7 +253,7 @@ public class ResourceShrinkerAction {
 
       // Expand resource files zip into working directory.
       try (ZipInputStream zin =
-          new ZipInputStream(new FileInputStream(options.resourcesZip.toFile()))) {
+          ZipSecurity.createHardenedInputStream(new FileInputStream(options.resourcesZip.toFile()))) {
         ZipEntry entry;
         while ((entry = zin.getNextEntry()) != null) {
           if (!entry.isDirectory()) {

@@ -15,6 +15,7 @@
 package com.google.devtools.build.singlejar;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.ZipSecurity;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
@@ -200,7 +201,7 @@ public class ZipCombinerTest {
     try (ZipCombiner zipCombiner = new ZipCombiner(out)) {
       zipCombiner.addZip(sampleZipWithTwoEntries());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -212,7 +213,7 @@ public class ZipCombinerTest {
     try (ZipCombiner zipCombiner = new ZipCombiner(out)) {
       zipCombiner.addZip(sampleZipWithTwoUncompressedEntries());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -225,7 +226,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZip());
       zipCombiner.addZip(sampleZip2());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -238,7 +239,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZip());
       zipCombiner.addZip(sampleZip());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -251,7 +252,7 @@ public class ZipCombinerTest {
       thrown.expectMessage("It does not contain an end of central directory record.");
       zipCombiner.addZip(writeInputStreamToFile(new ByteArrayInputStream(new byte[] {1, 2, 3, 4})));
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertThat(zipInput.getNextEntry()).isNull();
   }
 
@@ -265,7 +266,7 @@ public class ZipCombinerTest {
     try (ZipCombiner zipCombiner = new ZipCombiner(out)) {
       zipCombiner.addFile("hello.txt", ZipCombiner.DOS_EPOCH, asStream("Hello World!"));
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -277,7 +278,7 @@ public class ZipCombinerTest {
       zipCombiner.addFile("hello.txt", ZipCombiner.DOS_EPOCH, asStream("Hello World!"));
       zipCombiner.addZip(sampleZip());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -370,7 +371,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZipWithTwoEntries());
     }
     assertThat(mockFilter.calls).containsExactly("hello.txt", "hello2.txt").inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertEntry(zipInput, "hello.txt", "Hello World!\nHello World!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -387,7 +388,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZipWithTwoUncompressedEntries());
     }
     assertThat(mockFilter.calls).isEqualTo(Arrays.asList("hello.txt", "hello2.txt"));
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!\nHello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -402,7 +403,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZipWithTwoEntries());
     }
     assertThat(mockFilter.calls).isEqualTo(Arrays.asList("hello.txt", "hello2.txt"));
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertEntry(zipInput, "hello.txt", "Hello World!Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -419,7 +420,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZipWithTwoUncompressedEntries());
     }
     assertThat(mockFilter.calls).containsExactly("hello.txt", "hello2.txt").inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -439,7 +440,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(specialZipWithMinusOne());
     }
     assertThat(mockFilter.calls).containsExactly("hello.txt");
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", new byte[] { -1 });
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -459,7 +460,7 @@ public class ZipCombinerTest {
     try (ZipCombiner zipCombiner = new ZipCombiner(mockFilter, out)) {
       zipCombiner.addZip(sampleZip());
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", date, "Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
   }
@@ -475,7 +476,7 @@ public class ZipCombinerTest {
       zipCombiner.addZip(sampleZipWithTwoEntries());
     }
     assertThat(mockFilter.calls).containsExactly("hello.txt", "hello2.txt").inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello2.txt", ZipCombiner.DOS_EPOCH, "Hello World 2!");
     assertEntry(zipInput, "hello.txt", mockFilter.date, "Hello World!\nHello World!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -529,7 +530,7 @@ public class ZipCombinerTest {
     assertThat(mockFilter.calls)
         .containsExactly("hello.txt", "hello2.txt", "hello.txt", "hello2.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -552,7 +553,7 @@ public class ZipCombinerTest {
     assertThat(mockFilter.calls)
         .containsExactly("hello.txt", "hello2.txt", "hello.txt", "hello2.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello1.txt", "Hello World!");
     assertEntry(zipInput, "world1.txt", "Hello World 2!");
     assertEntry(zipInput, "hello2.txt", "Hello World!");
@@ -581,7 +582,7 @@ public class ZipCombinerTest {
         .containsExactly(
             "hello.txt", "hello2.txt", "hello.txt", "hello2.txt", "hello.txt", "hello2.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello1.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertEntry(zipInput, "hello3.txt", "Hello World!");
@@ -607,7 +608,7 @@ public class ZipCombinerTest {
     assertThat(mockFilter.calls)
         .containsExactly("hello.txt", "hello2.txt", "hello.txt", "hello.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello1.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertEntry(zipInput, "hello3.txt", "Hello World!");
@@ -633,7 +634,7 @@ public class ZipCombinerTest {
     assertThat(mockFilter.calls)
         .containsExactly("hello.txt", "hello2.txt", "hello.txt", "hello.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello1.txt", "Hello World!");
     assertEntry(zipInput, "hello3.txt", "Hello World!");
     assertThat(zipInput.getNextEntry()).isNull();
@@ -660,7 +661,7 @@ public class ZipCombinerTest {
         .containsExactly(
             "hello.txt", "hello2.txt", "hello.txt", "hello2.txt", "hello.txt", "hello2.txt")
         .inOrder();
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     assertEntry(zipInput, "hello1.txt", "Hello World!");
     assertEntry(zipInput, "hello2.txt", "Hello World 2!");
     assertEntry(zipInput, "hello3.txt", "Hello World!");
@@ -790,7 +791,7 @@ public class ZipCombinerTest {
         zipCombiner.addFile("hello" + i, ZipCombiner.DOS_EPOCH, asStream("Hello " + i + "!"));
       }
     }
-    ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()));
+    ZipInputStream zipInput = ZipSecurity.createHardenedInputStream(new ByteArrayInputStream(out.toByteArray()));
     for (int i = 0; i < fileCount; i++) {
       assertEntry(zipInput, "hello" + i, "Hello " + i + "!");
     }
