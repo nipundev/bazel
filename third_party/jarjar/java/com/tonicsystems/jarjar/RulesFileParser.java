@@ -16,6 +16,7 @@
 
 package com.tonicsystems.jarjar;
 
+import io.github.pixee.security.BoundedLineReader;
 import java.io.*;
 import java.util.*;
 
@@ -41,7 +42,7 @@ class RulesFileParser {
       BufferedReader br = new BufferedReader(r);
       int c = 1;
       String line;
-      while ((line = br.readLine()) != null) {
+      while ((line = BoundedLineReader.readLine(br, 5_000_000)) != null) {
         line = stripComment(line);
         if ("".equals(line)) {
           continue;
