@@ -17,6 +17,8 @@ package com.google.devtools.build.lib.bazel.repository.downloader;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.devtools.build.lib.bazel.repository.downloader.DownloaderTestUtils.sendLines;
 import static com.google.devtools.build.lib.bazel.repository.downloader.HttpParser.readHttpRequest;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -151,7 +153,7 @@ public class HttpConnectorTest {
           new InputStreamReader(
               connector
                   .connect(
-                      new URL(String.format("http://localhost:%d/boo", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d/boo", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       url -> ImmutableMap.of("Content-Encoding", ImmutableList.of("gzip")))
                   .getInputStream(),
               ISO_8859_1)) {
@@ -203,7 +205,7 @@ public class HttpConnectorTest {
           new InputStreamReader(
               connector
                   .connect(
-                      new URL(String.format("http://localhost:%d", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       url -> ImmutableMap.of())
                   .getInputStream(),
               ISO_8859_1)) {
@@ -263,7 +265,7 @@ public class HttpConnectorTest {
           new InputStreamReader(
               connector
                   .connect(
-                      new URL(String.format("http://localhost:%d", port)), url -> ImmutableMap.of())
+                      Urls.create(String.format("http://localhost:%d", port), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS), url -> ImmutableMap.of())
                   .getInputStream(),
               ISO_8859_1)) {
         assertThat(CharStreams.toString(payload)).isEqualTo("hello");
@@ -322,7 +324,7 @@ public class HttpConnectorTest {
           new InputStreamReader(
               connector
                   .connect(
-                      new URL(String.format("http://localhost:%d", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       url -> ImmutableMap.of())
                   .getInputStream(),
               ISO_8859_1)) {
@@ -355,7 +357,7 @@ public class HttpConnectorTest {
           new InputStreamReader(
               connector
                   .connect(
-                      new URL(String.format("http://localhost:%d", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       url -> ImmutableMap.of())
                   .getInputStream(),
               ISO_8859_1)) {
@@ -394,7 +396,7 @@ public class HttpConnectorTest {
       thrown.expect(IOException.class);
       thrown.expectMessage("401 Unauthorized");
       connector.connect(
-          new URL(String.format("http://localhost:%d", server.getLocalPort())),
+          Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
           url -> ImmutableMap.of());
     }
   }
@@ -426,7 +428,7 @@ public class HttpConnectorTest {
       thrown.expect(FileNotFoundException.class);
       thrown.expectMessage("404 Not Found");
       connector.connect(
-          new URL(String.format("http://localhost:%d", server.getLocalPort())),
+          Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
           url -> ImmutableMap.of());
     }
   }
@@ -461,7 +463,7 @@ public class HttpConnectorTest {
                 }
               });
       connector.connect(
-          new URL(String.format("http://localhost:%d", server.getLocalPort())),
+          Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
           url -> ImmutableMap.of());
       fail();
     } catch (IOException ignored) {
@@ -504,7 +506,7 @@ public class HttpConnectorTest {
       thrown.expectMessage("500 Oh My");
       try {
         connector.connect(
-            new URL(String.format("http://localhost:%d", server.getLocalPort())),
+            Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
             url -> ImmutableMap.of());
       } finally {
         assertThat(tries.get()).isGreaterThan(2);
@@ -543,7 +545,7 @@ public class HttpConnectorTest {
       thrown.expectMessage("403 Forbidden");
       try {
         connector.connect(
-            new URL(String.format("http://localhost:%d", server.getLocalPort())),
+            Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
             url -> ImmutableMap.of());
       } finally {
         assertThat(tries.get()).isGreaterThan(2);
@@ -614,10 +616,10 @@ public class HttpConnectorTest {
               });
       URLConnection connection =
           connector.connect(
-              new URL(String.format("http://localhost:%d", server.getLocalPort())),
+              Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
               url -> ImmutableMap.of());
       assertThat(connection.getURL()).isEqualTo(
-          new URL(String.format("http://localhost:%d/doodle.tar.gz", server.getLocalPort())));
+          Urls.create(String.format("http://localhost:%d/doodle.tar.gz", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS));
       try (InputStream input = connection.getInputStream()) {
         assertThat(ByteStreams.toByteArray(input)).isEmpty();
       }
@@ -694,9 +696,9 @@ public class HttpConnectorTest {
           };
       URLConnection connection =
           connector.connect(
-              new URL(String.format("http://localhost:%d", server1.getLocalPort())), authHeaders);
+              Urls.create(String.format("http://localhost:%d", server1.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS), authHeaders);
       assertThat(connection.getURL()).isEqualTo(
-          new URL(String.format("http://localhost:%d/doodle.tar.gz", server2.getLocalPort())));
+          Urls.create(String.format("http://localhost:%d/doodle.tar.gz", server2.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS));
       try (InputStream input = connection.getInputStream()) {
         assertThat(ByteStreams.toByteArray(input)).isEqualTo("hello".getBytes(US_ASCII));
       }

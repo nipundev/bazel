@@ -14,6 +14,8 @@
 
 package com.google.testing.coverage;
 
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.newBufferedWriter;
 import static java.nio.file.StandardOpenOption.APPEND;
@@ -374,7 +376,7 @@ public class JacocoCoverageRunner {
         String[] urlStrings = jarClassPath.split(" ");
         URL[] newUrls = new URL[urlStrings.length];
         for (int i = 0; i < urlStrings.length; i++) {
-          newUrls[i] = new URL(urlStrings[i]);
+          newUrls[i] = Urls.create(urlStrings[i], Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         }
         return newUrls;
       } catch (Exception e) {
