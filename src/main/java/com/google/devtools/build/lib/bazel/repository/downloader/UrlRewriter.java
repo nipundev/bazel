@@ -14,6 +14,8 @@
 package com.google.devtools.build.lib.bazel.repository.downloader;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
 import com.google.auth.Credentials;
@@ -260,10 +262,10 @@ public class UrlRewriter {
     try {
       for (String schemaPrefix : REWRITABLE_SCHEMES) {
         if (url.startsWith(schemaPrefix + "://")) {
-          return new URL(url);
+          return Urls.create(url, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         }
       }
-      return new URL(protocol + "://" + url);
+      return Urls.create(protocol + "://" + url, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
     } catch (MalformedURLException e) {
       throw new IllegalStateException(e);
     }

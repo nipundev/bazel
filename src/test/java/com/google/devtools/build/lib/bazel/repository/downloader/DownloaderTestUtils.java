@@ -14,6 +14,8 @@
 
 package com.google.devtools.build.lib.bazel.repository.downloader;
 
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
 import com.google.common.base.Joiner;
@@ -29,7 +31,7 @@ final class DownloaderTestUtils {
 
   static URL makeUrl(String url) {
     try {
-      return new URL(url);
+      return Urls.create(url, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
     } catch (MalformedURLException e) {
       throw new RuntimeException(e);
     }

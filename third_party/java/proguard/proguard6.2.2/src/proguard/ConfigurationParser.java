@@ -20,6 +20,8 @@
  */
 package proguard;
 
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import proguard.classfile.*;
 import proguard.classfile.util.ClassUtil;
 import proguard.util.*;
@@ -251,7 +253,7 @@ public class ConfigurationParser
         try
         {
             // Check if the file name is a valid URL.
-            url = new URL(nextWord);
+            url = Urls.create(nextWord, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         }
         catch (MalformedURLException ex) {}
 
@@ -262,7 +264,7 @@ public class ConfigurationParser
         // Is it relative to a URL or to a file?
         else if (baseURL != null)
         {
-            url = new URL(baseURL, nextWord);
+            url = Urls.create(baseURL, nextWord, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
             reader.includeWordReader(new FileWordReader(url));
         }
         else
@@ -1505,7 +1507,7 @@ public class ConfigurationParser
         try
         {
             // Check if the file name is a valid URL.
-            url = new URL(fileName);
+            url = Urls.create(fileName, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
             return url;
         }
         catch (MalformedURLException ex) {}
@@ -1514,7 +1516,7 @@ public class ConfigurationParser
         URL baseURL = reader.getBaseURL();
         if (baseURL != null)
         {
-            url = new URL(baseURL, fileName);
+            url = Urls.create(baseURL, fileName, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         }
         else
         {
