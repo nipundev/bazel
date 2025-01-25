@@ -18,6 +18,7 @@ import com.google.devtools.build.runfiles.Runfiles;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +46,7 @@ public class LoadTest {
     Logger.getLogger("com.google.devtools.build.lib.shell.Command").setLevel(Level.FINEST);
 
     // create a temp file
-    tempFile = File.createTempFile("LoadTest", "txt");
+    tempFile = Files.createTempFile("LoadTest", "txt").toFile();
     if (tempFile.exists()) {
       tempFile.delete();
     }
