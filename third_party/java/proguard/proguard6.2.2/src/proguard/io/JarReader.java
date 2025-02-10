@@ -20,6 +20,7 @@
  */
 package proguard.io;
 
+import io.github.pixee.security.ZipSecurity;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.zip.*;
@@ -66,7 +67,7 @@ public class JarReader implements DataEntryReader
             dataEntry.getInputStream().read(new byte[4]);
         }
 
-        ZipInputStream zipInputStream = new ZipInputStream(dataEntry.getInputStream(), Charset.forName("UTF-8"));
+        ZipInputStream zipInputStream = ZipSecurity.createHardenedInputStream(dataEntry.getInputStream(), Charset.forName("UTF-8"));
 
         try
         {
