@@ -1508,7 +1508,9 @@ public class Optimizer
             System.out.println("  Number of string peephole optimizations:       " + codeSimplificationStringCount          + disabled(codeSimplificationString));
             System.out.println("  Number of math peephole optimizations:         " + codeSimplificationMathCount            + disabled(codeSimplificationMath));
             if (configuration.android)
-            System.out.println("  Number of Android math peephole optimizations: " + codeSimplificationAndroidMathCount     + disabled(codeSimplificationMath));
+            {
+                System.out.println("  Number of Android math peephole optimizations: " + codeSimplificationAndroidMathCount     + disabled(codeSimplificationMath));
+            }
             System.out.println("  Number of simplified instructions:             " + codeSimplificationAdvancedCount        + disabled(codeSimplificationAdvanced));
             System.out.println("  Number of removed instructions:                " + codeRemovalCount                       + disabled(codeRemovalAdvanced));
             System.out.println("  Number of removed local variables:             " + codeRemovalVariableCount               + disabled(codeRemovalVariable));
