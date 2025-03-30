@@ -14,6 +14,7 @@
 
 package com.google.devtools.build.docgen;
 
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.auto.value.AutoValue;
@@ -84,7 +85,7 @@ public class BuildDocCollector {
     if (denyList != null && !denyList.isEmpty()) {
       File file = new File(denyList);
       try (BufferedReader reader = Files.newBufferedReader(file.toPath(), UTF_8)) {
-        for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+        for (String line = BoundedLineReader.readLine(reader, 5_000_000); line != null; line = BoundedLineReader.readLine(reader, 5_000_000)) {
           String rule = SHARP_SPLITTER.split(line).iterator().next();
           if (!rule.isEmpty()) {
             result.add(rule);

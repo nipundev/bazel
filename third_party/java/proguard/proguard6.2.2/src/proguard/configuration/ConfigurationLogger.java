@@ -21,6 +21,7 @@
 package proguard.configuration;
 
 
+import io.github.pixee.security.BoundedLineReader;
 import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
@@ -698,7 +699,7 @@ public class ConfigurationLogger implements Runnable
                         new InputStreamReader(
                             ConfigurationLogger.class.getClassLoader().getResourceAsStream(CLASS_MAP_FILENAME)));
 
-                while ((line = reader.readLine()) != null)
+                while ((line = BoundedLineReader.readLine(reader, 5_000_000)) != null)
                 {
                     StringTokenizer tokenizer            = new StringTokenizer(line, ",");
                     String          originalClassName    = tokenizer.nextToken();

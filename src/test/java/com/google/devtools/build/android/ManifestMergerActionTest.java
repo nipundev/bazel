@@ -14,6 +14,7 @@
 package com.google.devtools.build.android;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
@@ -66,7 +67,7 @@ public class ManifestMergerActionTest {
           Files.newBufferedReader(Paths.get(manifest), Charset.defaultCharset())) {
         Splitter splitter = Splitter.on(' ').limit(2);
         String line = null;
-        while ((line = r.readLine()) != null) {
+        while ((line = BoundedLineReader.readLine(r, 5_000_000)) != null) {
           List<String> tokens = splitter.splitToList(line);
           if (tokens.size() == 2) {
             if (tokens.get(0).equals(path)) {

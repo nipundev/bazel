@@ -29,6 +29,7 @@ import static com.google.devtools.coverageoutputgenerator.Constants.LF_MARKER;
 import static com.google.devtools.coverageoutputgenerator.Constants.LH_MARKER;
 import static com.google.devtools.coverageoutputgenerator.Constants.NEVER_EVALUATED;
 import static com.google.devtools.coverageoutputgenerator.Constants.SF_MARKER;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.BufferedReader;
@@ -69,7 +70,7 @@ class LcovParser {
     try (BufferedReader bufferedReader =
         new BufferedReader(new InputStreamReader(inputStream, UTF_8))) {
       String line;
-      while ((line = bufferedReader.readLine()) != null) {
+      while ((line = BoundedLineReader.readLine(bufferedReader, 5_000_000)) != null) {
         parseLine(line, allSourceFiles);
       }
       bufferedReader.close();

@@ -16,6 +16,7 @@ package com.google.devtools.build.lib.bazel.repository.downloader;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import io.github.pixee.security.BoundedLineReader;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.Reader;
@@ -93,7 +94,7 @@ class UrlRewriterConfig {
 
     try (BufferedReader reader = new BufferedReader(config)) {
       int lineNumber = 1;
-      for (String line = reader.readLine(); line != null; line = reader.readLine(), lineNumber++) {
+      for (String line = BoundedLineReader.readLine(reader, 5_000_000); line != null; line = BoundedLineReader.readLine(reader, 5_000_000), lineNumber++) {
         // Find the first word
         List<String> parts = SPLITTER.splitToList(line);
         if (parts.isEmpty()) {

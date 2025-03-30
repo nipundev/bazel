@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import com.google.devtools.build.runfiles.Runfiles;
+import io.github.pixee.security.BoundedLineReader;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -68,7 +69,7 @@ public class Foo {
     try (BufferedReader r =
         new BufferedReader(new InputStreamReader(stm, StandardCharsets.UTF_8))) {
       String line = null;
-      while ((line = r.readLine()) != null) {
+      while ((line = BoundedLineReader.readLine(r, 5_000_000)) != null) {
         line = line.trim(); // trim CRLF on Windows, LF on Linux
         result.append(line).append("\n"); // ensure uniform line ending
       }

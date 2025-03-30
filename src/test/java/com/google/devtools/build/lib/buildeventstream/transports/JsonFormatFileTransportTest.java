@@ -15,6 +15,7 @@
 package com.google.devtools.build.lib.buildeventstream.transports;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.mockito.Mockito.when;
 
@@ -156,7 +157,7 @@ public class JsonFormatFileTransportTest {
 
     // Assert: Special invalid event message is written in JSON.
     try (BufferedReader reader = new BufferedReader(openOutputReader())) {
-      String jsonLine = reader.readLine();
+      String jsonLine = BoundedLineReader.readLine(reader, 5_000_000);
       UnknownAnyProtoError error =
           new GsonBuilder().create().fromJson(jsonLine, UnknownAnyProtoError.class);
       assertThat(error).isNotNull();

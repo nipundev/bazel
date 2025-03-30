@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.devtools.build.lib.analysis.ConfiguredRuleClassProvider;
+import io.github.pixee.security.BoundedLineReader;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -361,7 +362,7 @@ public class SourceFileReader {
     try (BufferedReader br = createReader(filePath)) {
       if (br != null) {
         String line = null;
-        while ((line = br.readLine()) != null) {
+        while ((line = BoundedLineReader.readLine(br, 5_000_000)) != null) {
           action.readLine(line);
         }
       } else {

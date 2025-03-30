@@ -13,6 +13,7 @@
 // limitations under the License.
 package net.starlark.java.cmd;
 
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.BufferedReader;
@@ -70,7 +71,7 @@ class Main {
       String lineSeparator = "";
       loop:
       while (true) {
-        String line = reader.readLine();
+        String line = BoundedLineReader.readLine(reader, 5_000_000);
         if (line == null) {
           return null;
         }
