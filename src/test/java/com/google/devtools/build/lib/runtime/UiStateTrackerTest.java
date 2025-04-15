@@ -15,6 +15,8 @@ package com.google.devtools.build.lib.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -1392,10 +1394,9 @@ public class UiStateTrackerTest extends FoundationTestCase {
     for (int i = 0; i < 10; i++) {
       stateTracker.downloadProgress(
           new DownloadProgressEvent(
-              new URL(
-                  "http://otherhost.example/another/also/length/path/to/another/download"
+              Urls.create("http://otherhost.example/another/also/length/path/to/another/download"
                       + i
-                      + ".zip")));
+                      + ".zip", Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS)));
       clock.advanceMillis(TimeUnit.SECONDS.toMillis(1));
     }
 

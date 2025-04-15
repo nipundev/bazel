@@ -33,6 +33,8 @@ import com.google.devtools.build.lib.events.ExtendedEventHandler;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.URI;
@@ -149,7 +151,7 @@ public class DownloadManager {
     // Used for reporting only and determining the file name only.
     if (rewrittenUrls.isEmpty()) {
       if (type.isPresent() && !Strings.isNullOrEmpty(type.get())) {
-        mainUrl = new URL("http://nonexistent.example.org/cacheprobe." + type.get());
+        mainUrl = Urls.create("http://nonexistent.example.org/cacheprobe." + type.get(), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
       } else {
         mainUrl = new URL("http://nonexistent.example.org/cacheprobe");
       }
