@@ -17,6 +17,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.devtools.build.lib.packages.RuleClass.Builder.RuleClassType.ABSTRACT;
 import static com.google.devtools.build.lib.packages.RuleClass.Builder.RuleClassType.TEST;
+import io.github.pixee.security.ZipSecurity;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -526,7 +527,7 @@ public /*final*/ class ConfiguredRuleClassProvider
         Preconditions.checkArgument(
             builtinsZip != null, "No resource with name %s", builtinsResourceName);
 
-        try (ZipInputStream zip = new ZipInputStream(builtinsZip)) {
+        try (ZipInputStream zip = ZipSecurity.createHardenedInputStream(builtinsZip)) {
           for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
             String entryName = entry.getName();
             Preconditions.checkArgument(entryName.startsWith("builtins_bzl/"));
