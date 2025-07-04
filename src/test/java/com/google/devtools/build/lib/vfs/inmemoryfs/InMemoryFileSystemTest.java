@@ -14,6 +14,7 @@
 package com.google.devtools.build.lib.vfs.inmemoryfs;
 
 import static com.google.common.truth.Truth.assertThat;
+import io.github.pixee.security.BoundedLineReader;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.Lists;
@@ -155,8 +156,8 @@ public final class InMemoryFileSystemTest extends SymlinkAwareFileSystemTest {
             try (BufferedReader reader =
                 new BufferedReader(
                     new InputStreamReader(file.getInputStream(), Charset.defaultCharset()))) {
-              assertThat(reader.readLine()).isEqualTo(TEST_FILE_DATA);
-              assertThat(reader.readLine()).isNull();
+              assertThat(BoundedLineReader.readLine(reader, 5_000_000)).isEqualTo(TEST_FILE_DATA);
+              assertThat(BoundedLineReader.readLine(reader, 5_000_000)).isNull();
             }
 
             Path symlink = base.getRelative("symlink" + i);
@@ -237,8 +238,8 @@ public final class InMemoryFileSystemTest extends SymlinkAwareFileSystemTest {
               try (BufferedReader reader =
                   new BufferedReader(
                       new InputStreamReader(file.getInputStream(), Charset.defaultCharset()))) {
-                assertThat(reader.readLine()).isEqualTo(TEST_FILE_DATA);
-                assertThat(reader.readLine()).isNull();
+                assertThat(BoundedLineReader.readLine(reader, 5_000_000)).isEqualTo(TEST_FILE_DATA);
+                assertThat(BoundedLineReader.readLine(reader, 5_000_000)).isNull();
               }
             }
 

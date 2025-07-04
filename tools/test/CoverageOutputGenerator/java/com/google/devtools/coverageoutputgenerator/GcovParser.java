@@ -24,6 +24,7 @@ import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_FILE_MA
 import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_FUNCTION_MARKER;
 import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_LINE_MARKER;
 import static com.google.devtools.coverageoutputgenerator.Constants.GCOV_VERSION_MARKER;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.collect.ListMultimap;
@@ -67,7 +68,7 @@ public class GcovParser {
       String line;
       // TODO(bazel-team): This is susceptible to OOM if the input file is too large and doesn't
       // contain any newlines.
-      while ((line = bufferedReader.readLine()) != null) {
+      while ((line = BoundedLineReader.readLine(bufferedReader, 5_000_000)) != null) {
         if (!parseLine(line)) {
           malformedInput = true;
         }

@@ -16,6 +16,7 @@ package com.google.devtools.build.lib.util;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth8.assertThat;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
@@ -397,8 +398,8 @@ public final class SimpleLogHandlerTest {
     handler.close();
     try (BufferedReader logReader =
         new BufferedReader(new InputStreamReader(new FileInputStream(logPath.toFile()), UTF_8))) {
-      assertThat(logReader.readLine()).isEqualTo("Previous logs");
-      assertThat(logReader.readLine()).isEqualTo("New logs");
+      assertThat(BoundedLineReader.readLine(logReader, 5_000_000)).isEqualTo("Previous logs");
+      assertThat(BoundedLineReader.readLine(logReader, 5_000_000)).isEqualTo("New logs");
     }
   }
 

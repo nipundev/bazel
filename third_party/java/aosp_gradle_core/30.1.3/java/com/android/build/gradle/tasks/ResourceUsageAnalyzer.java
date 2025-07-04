@@ -25,6 +25,7 @@ import static com.android.SdkConstants.TAG_ITEM;
 import static com.android.SdkConstants.TAG_RESOURCES;
 import static com.android.ide.common.resources.ResourcesUtil.resourceNameToFieldName;
 import static com.android.utils.SdkUtils.endsWithIgnoreCase;
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.objectweb.asm.ClassReader.SKIP_DEBUG;
 import static org.objectweb.asm.ClassReader.SKIP_FRAMES;
@@ -1003,7 +1004,7 @@ public class ResourceUsageAnalyzer {
   private void parseResourceTxtFile(Path rTxt, Set<String> resourcePackages) throws IOException {
     BufferedReader reader = java.nio.file.Files.newBufferedReader(rTxt, UTF_8);
     String line;
-    while ((line = reader.readLine()) != null) {
+    while ((line = BoundedLineReader.readLine(reader, 5_000_000)) != null) {
       String[] tokens = line.split(" ");
       ResourceType type = getEnum(tokens[1]);
       for (String resourcePackage : resourcePackages) {

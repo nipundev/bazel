@@ -13,6 +13,7 @@
 // limitations under the License.
 package com.google.devtools.build.lib.analysis.actions;
 
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -356,7 +357,7 @@ public class StarlarkAction extends SpawnAction {
               new InputStreamReader(
                   getUnusedInputListInputStream(actionExecutionContext, spawnResults), UTF_8))) {
         String line;
-        while ((line = br.readLine()) != null) {
+        while ((line = BoundedLineReader.readLine(br, 5_000_000)) != null) {
           line = line.trim();
           if (line.isEmpty()) {
             continue;

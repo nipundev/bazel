@@ -14,6 +14,7 @@
 
 package com.google.testing.coverage;
 
+import io.github.pixee.security.BoundedLineReader;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.newBufferedWriter;
 import static java.nio.file.StandardOpenOption.APPEND;
@@ -279,7 +280,7 @@ public class JacocoCoverageRunner {
         BufferedReader bufferedReader =
             new BufferedReader(new InputStreamReader(jarFile.getInputStream(jarEntry), UTF_8));
         String line;
-        while ((line = bufferedReader.readLine()) != null) {
+        while ((line = BoundedLineReader.readLine(bufferedReader, 5_000_000)) != null) {
           execPathsSetBuilder.add(line);
         }
       }
@@ -464,7 +465,7 @@ public class JacocoCoverageRunner {
                   new BufferedReader(
                       new InputStreamReader(jarFile.getInputStream(jarEntry), UTF_8));
               String line;
-              while ((line = bufferedReader.readLine()) != null) {
+              while ((line = BoundedLineReader.readLine(bufferedReader, 5_000_000)) != null) {
                 pathsForCoverageBuilder.add(line);
               }
             }

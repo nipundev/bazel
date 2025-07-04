@@ -21,6 +21,7 @@ import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.util.ArrayMap;
 import android.util.Log;
+import io.github.pixee.security.BoundedLineReader;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -440,7 +441,7 @@ public class StubApplication extends Application {
     Map<String, String> result = new LinkedHashMap<>();
     try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
       while (true) {
-        String line = reader.readLine();
+        String line = BoundedLineReader.readLine(reader, 5_000_000);
         if (line == null) {
           break;
         }
