@@ -18,6 +18,8 @@ import static com.google.common.io.ByteStreams.toByteArray;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.devtools.build.lib.bazel.repository.downloader.DownloaderTestUtils.sendLines;
 import static com.google.devtools.build.lib.bazel.repository.downloader.HttpParser.readHttpRequest;
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertThrows;
@@ -117,7 +119,7 @@ public class HttpConnectorMultiplexerIntegrationTest {
       barrier.await();
       try (HttpStream stream =
           multiplexer.connect(
-              new URL(String.format("http://localhost:%d", server.getLocalPort())), HELLO_SHA256)) {
+              Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS), HELLO_SHA256)) {
         assertThat(toByteArray(stream)).isEqualTo("hello".getBytes(US_ASCII));
       }
     }
@@ -150,7 +152,7 @@ public class HttpConnectorMultiplexerIntegrationTest {
               IOException.class,
               () ->
                   multiplexer.connect(
-                      new URL(String.format("http://localhost:%d", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       HELLO_SHA256));
       assertThat(e).hasMessageThat().containsMatch("Checksum was .+ but wanted");
     }
@@ -184,7 +186,7 @@ public class HttpConnectorMultiplexerIntegrationTest {
               IOException.class,
               () ->
                   multiplexer.connect(
-                      new URL(String.format("http://localhost:%d", server.getLocalPort())),
+                      Urls.create(String.format("http://localhost:%d", server.getLocalPort()), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS),
                       HELLO_SHA256));
       assertThat(e).hasMessageThat().contains("GET returned 503 MELTDOWN");
     }

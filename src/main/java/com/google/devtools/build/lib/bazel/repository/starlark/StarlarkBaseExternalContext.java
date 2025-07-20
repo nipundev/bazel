@@ -14,6 +14,8 @@
 
 package com.google.devtools.build.lib.bazel.repository.starlark;
 
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -159,7 +161,7 @@ public abstract class StarlarkBaseExternalContext implements StarlarkValue {
     ImmutableMap.Builder<URI, Map<String, List<String>>> headers = new ImmutableMap.Builder<>();
     for (Map.Entry<String, Dict<?, ?>> entry : auth.entrySet()) {
       try {
-        URL url = new URL(entry.getKey());
+        URL url = Urls.create(entry.getKey(), Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         Dict<?, ?> authMap = entry.getValue();
         if (authMap.containsKey("type")) {
           if ("basic".equals(authMap.get("type"))) {
@@ -255,7 +257,7 @@ public abstract class StarlarkBaseExternalContext implements StarlarkValue {
     for (String urlString : urlStrings) {
       URL url;
       try {
-        url = new URL(urlString);
+        url = Urls.create(urlString, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
       } catch (MalformedURLException e) {
         throw new RepositoryFunctionException(
             new IOException("Bad URL: " + urlString, e), Transience.PERSISTENT);

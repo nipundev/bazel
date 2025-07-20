@@ -15,6 +15,8 @@
 
 package com.google.devtools.build.lib.bazel.bzlmod;
 
+import io.github.pixee.security.HostValidator;
+import io.github.pixee.security.Urls;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Strings;
@@ -96,7 +98,7 @@ public class IndexRegistry implements Registry {
     try (SilentCloseable c =
         Profiler.instance().profile(ProfilerTask.BZLMOD, () -> "download file: " + url)) {
       return Optional.of(
-          downloadManager.downloadAndReadOneUrl(new URL(url), eventHandler, clientEnv));
+          downloadManager.downloadAndReadOneUrl(Urls.create(url, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS), eventHandler, clientEnv));
     } catch (FileNotFoundException e) {
       return Optional.empty();
     }
@@ -255,7 +257,7 @@ public class IndexRegistry implements Registry {
     if (bazelRegistryJson.isPresent() && bazelRegistryJson.get().mirrors != null) {
       for (String mirror : bazelRegistryJson.get().mirrors) {
         try {
-          var unused = new URL(mirror);
+          var unused = Urls.create(mirror, Urls.HTTP_PROTOCOLS, HostValidator.DENY_COMMON_INFRASTRUCTURE_TARGETS);
         } catch (MalformedURLException e) {
           throw new IOException("Malformed mirror URL", e);
         }
